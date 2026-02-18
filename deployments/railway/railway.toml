@@ -1,0 +1,7 @@
+[build]
+builder = "dockerfile"
+dockerfile = "app/backend/Dockerfile"
+context = "backend"
+
+[deploy]
+start = "./api"

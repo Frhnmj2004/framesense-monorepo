@@ -1,0 +1,34 @@
+# Core dependencies
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+pydantic==2.9.2
+pydantic-settings==2.5.2
+
+# Testing
+pytest>=8.0.0
+httpx>=0.27.0
+
+# ML dependencies
+torch>=2.7.0
+transformers>=4.45.0
+huggingface-hub>=0.24.0
+
+# Image processing
+Pillow>=10.4.0
+opencv-python>=4.10.0
+numpy>=1.26.0,<2.0.0
+
+# Mask encoding
+pycocotools>=2.0.7
+
+# AWS S3
+boto3>=1.35.0
+
+# Redis
+redis>=5.2.0
+
+# HTTP client
+requests>=2.32.0
+
+# Metrics
+prometheus-client>=0.21.0

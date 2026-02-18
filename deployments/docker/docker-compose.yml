@@ -1,0 +1,94 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: framesense-postgres
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${DB_NAME:-framesense}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./app/backend
+      dockerfile: Dockerfile
+    container_name: framesense-api
+    ports:
+      - "${SERVER_PORT:-8080}:8080"
+    environment:
+      SERVER_PORT: ${SERVER_PORT:-8080}
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      DB_NAME: ${DB_NAME:-framesense}
+      DB_SSLMODE: disable
+      JWT_SECRET: ${JWT_SECRET:-your-secret-key-change-in-production}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: framesense-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  inference:
+    build:
+      context: ./app/inference
+      dockerfile: Dockerfile
+    container_name: framesense-inference
+    ports:
+      - "${INFERENCE_PORT:-8000}:8000"
+    environment:
+      MODEL_PATH: ${MODEL_PATH:-facebook/sam3}
+      INFERENCE_PORT: ${INFERENCE_PORT:-8000}
+      REQUIRE_GPU: ${REQUIRE_GPU:-true}
+      MAX_CONCURRENCY: ${MAX_CONCURRENCY:-2}
+      INFERENCE_TIMEOUT: ${INFERENCE_TIMEOUT:-30}
+      SAMPLE_FPS: ${SAMPLE_FPS:-1.0}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+      REDIS_URL: redis://redis:6379/0
+      REDIS_JOB_QUEUE: ${REDIS_JOB_QUEUE:-inference:jobs}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [gpu]
+
+volumes:
+  postgres_data:
