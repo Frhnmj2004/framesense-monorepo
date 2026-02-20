@@ -27,6 +27,29 @@ The service loads the SAM 3 model once at startup and processes videos through t
   - Generate access token at: https://huggingface.co/settings/tokens
 - **NVIDIA GPU**: CUDA 12.6 compatible GPU with minimum 12GB VRAM
 - **Docker**: For containerized deployment
+- **Docker Compose**: For easy local development (optional but recommended)
+- **NVIDIA Container Toolkit**: Required for GPU support in Docker
+
+## Quick Start
+
+The fastest way to get started:
+
+```bash
+cd app/inference
+
+# 1. Copy and configure .env file
+cp .env.example .env
+# Edit .env and add your HF_TOKEN
+
+# 2. Start with docker-compose
+docker-compose up -d
+
+# 3. Check health
+curl http://localhost:8000/health
+
+# 4. View logs
+docker-compose logs -f
+```
 
 ## Local Development
 
@@ -65,18 +88,55 @@ The service will automatically load environment variables from a `.env` file in 
 
 ### 2. Install Dependencies
 
-**Option A: Using Docker (Recommended)**
+**Option A: Using Docker Compose (Recommended for local development)**
+
+```bash
+# Make sure you have a .env file with your HF_TOKEN
+cp .env.example .env
+# Edit .env and add your HF_TOKEN
+
+# Build and start the service
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Stop the service
+docker-compose down
+```
+
+**Option B: Using Docker directly**
+
+**Method 1: Pass environment variables directly (Recommended for production)**
 
 ```bash
 # Build the Docker image
 docker build -t sam3-inference .
 
 # Run the container (requires NVIDIA Docker runtime)
+# Pass HF_TOKEN as environment variable
 docker run --gpus all \
   -p 8000:8000 \
   -e HF_TOKEN=your_huggingface_token_here \
   sam3-inference
 ```
+
+**Method 2: Use .env file with Docker**
+
+The `.env` file will be automatically loaded if it exists in the build context. However, **it's recommended to pass environment variables directly** for security reasons (don't bake secrets into images).
+
+If you want to use a `.env` file:
+```bash
+# Build the Docker image (includes .env if present)
+docker build -t sam3-inference .
+
+# Run the container
+docker run --gpus all \
+  -p 8000:8000 \
+  sam3-inference
+```
+
+**Note:** Environment variables passed with `-e` will override `.env` file values.
 
 **Option B: Local Python Installation**
 
@@ -221,14 +281,39 @@ cd framesense-monorepo/app/inference
 docker build -t sam3-inference .
 
 # Run container
+# Pass environment variables directly (recommended)
 docker run --gpus all \
   -d \
   --name sam3-inference \
   -p 8000:8000 \
   -e HF_TOKEN=$HF_TOKEN \
+  -e MODEL_DEVICE=cuda \
   -v /root/.cache/huggingface:/root/.cache/huggingface \
   sam3-inference
 ```
+
+**Alternative: Using docker-compose**
+
+A `docker-compose.yml` file is already included in the repository. Simply:
+
+```bash
+# Make sure .env file exists with HF_TOKEN
+cp .env.example .env
+# Edit .env and add your token
+
+# Build and start
+docker-compose up -d
+
+# View logs
+docker-compose logs -f inference
+```
+
+The docker-compose file automatically:
+- Loads environment variables from `.env` file
+- Sets up GPU support
+- Mounts HuggingFace cache volume
+- Configures health checks
+- Sets up proper restart policies
 
 **Option B: Use RunPod Template**
 

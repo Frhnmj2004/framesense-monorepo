@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  inference:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sam3-inference
+    ports:
+      - "${PORT:-8000}:8000"
+    environment:
+      # HuggingFace token (required for SAM 3 checkpoint download)
+      - HF_TOKEN=${HF_TOKEN}
+      # Model device (cuda or cpu)
+      - MODEL_DEVICE=${MODEL_DEVICE:-cuda}
+      # Video download settings
+      - MAX_VIDEO_SIZE_MB=${MAX_VIDEO_SIZE_MB:-500}
+      - VIDEO_DOWNLOAD_TIMEOUT=${VIDEO_DOWNLOAD_TIMEOUT:-120}
+      # Inference settings
+      - INFERENCE_TIMEOUT=${INFERENCE_TIMEOUT:-300}
+      # Server configuration
+      - HOST=${HOST:-0.0.0.0}
+      - PORT=${PORT:-8000}
+    volumes:
+      # Mount HuggingFace cache for faster subsequent model loads
+      - huggingface_cache:/root/.cache/huggingface
+      # Optional: Mount local .env file if you want to override settings
+      # Uncomment the line below if you want to use .env file inside container
+      # - ./.env:/app/.env:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  huggingface_cache:
+    driver: local

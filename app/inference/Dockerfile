@@ -47,6 +47,8 @@ COPY requirements.txt /app/requirements.txt
 RUN pip install -r requirements.txt
 
 # Copy application code
+# Note: .env files are NOT copied (excluded by .dockerignore for security)
+# Pass environment variables at runtime using -e flag or docker-compose
 COPY . /app/
 
 # Set working directory
