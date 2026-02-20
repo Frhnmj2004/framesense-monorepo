@@ -91,12 +91,16 @@ The service will automatically load environment variables from a `.env` file in 
 **Option A: Using Docker Compose (Recommended for local development)**
 
 ```bash
+# Enable BuildKit for faster builds (one-time setup)
+export DOCKER_BUILDKIT=1
+export COMPOSE_DOCKER_CLI_BUILD=1
+
 # Make sure you have a .env file with your HF_TOKEN
 cp .env.example .env
 # Edit .env and add your HF_TOKEN
 
-# Build and start the service
-docker-compose up -d
+# Build and start the service (first build takes 20-30 min, subsequent builds are much faster)
+docker-compose up -d --build
 
 # View logs
 docker-compose logs -f
@@ -104,6 +108,8 @@ docker-compose logs -f
 # Stop the service
 docker-compose down
 ```
+
+**Note:** First build downloads ~2.5GB base image and installs PyTorch/SAM 3 (~20-30 minutes). Subsequent builds with code changes are much faster (~30 seconds - 2 minutes) thanks to layer caching. See `BUILD_OPTIMIZATION.md` for more tips.
 
 **Option B: Using Docker directly**
 

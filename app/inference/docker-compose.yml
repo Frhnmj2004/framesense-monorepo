@@ -1,10 +1,11 @@
-version: '3.8'
-
 services:
   inference:
     build:
       context: .
       dockerfile: Dockerfile
+      # Enable BuildKit for better caching
+      args:
+        BUILDKIT_INLINE_CACHE: 1
     container_name: sam3-inference
     ports:
       - "${PORT:-8000}:8000"

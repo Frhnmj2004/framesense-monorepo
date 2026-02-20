@@ -32,8 +32,8 @@ ENV/
 .DS_Store
 Thumbs.db
 
-# Documentation
-README.md
+# Documentation (keep README.md for now, but can exclude if needed)
+# README.md
 *.md
 
 # Temporary files
@@ -41,3 +41,8 @@ README.md
 *.log
 temp/
 tmp/
+
+# Docker files (don't copy into image)
+docker-compose.yml
+.dockerignore
+Dockerfile
