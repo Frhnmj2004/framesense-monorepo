@@ -32,6 +32,21 @@ The service loads the SAM 3 model once at startup and processes videos through t
 
 ### 1. Set Up Environment
 
+**Option A: Using .env file (Recommended)**
+
+```bash
+# Clone the repository
+cd app/inference
+
+# Copy the example .env file
+cp .env.example .env
+
+# Edit .env and add your HuggingFace token
+# HF_TOKEN=your_huggingface_token_here
+```
+
+**Option B: Using Environment Variables**
+
 ```bash
 # Clone the repository
 cd app/inference
@@ -45,6 +60,8 @@ export MAX_VIDEO_SIZE_MB=500
 export VIDEO_DOWNLOAD_TIMEOUT=120
 export INFERENCE_TIMEOUT=300
 ```
+
+The service will automatically load environment variables from a `.env` file in the `app/inference/` directory if it exists. Environment variables set in your shell will override `.env` file values.
 
 ### 2. Install Dependencies
 
@@ -246,7 +263,16 @@ nvidia-smi
 
 ## Configuration
 
-All configuration is done via environment variables:
+All configuration is done via environment variables. You can set them in two ways:
+
+1. **Using a `.env` file** (recommended for local development):
+   - Copy `.env.example` to `.env`
+   - Edit `.env` with your values
+   - The service automatically loads variables from `.env` on startup
+
+2. **Using environment variables** (recommended for production):
+   - Set environment variables directly
+   - Environment variables override `.env` file values
 
 | Variable | Default | Description |
 |----------|---------|-------------|
