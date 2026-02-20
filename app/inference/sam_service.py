@@ -1,6 +1,7 @@
 """SAM 3 video inference service wrapper."""
 
 import logging
+import time
 from typing import Any
 
 import numpy as np
@@ -54,6 +55,7 @@ class SamService:
         self,
         video_path: str,
         text_prompt: str,
+        max_frames: int | None = None,
     ) -> VideoProcessResponse:
         """
         Process a video with SAM 3 using a text prompt.
@@ -61,6 +63,7 @@ class SamService:
         Args:
             video_path: Path to the video file (MP4 or directory of JPEG frames)
             text_prompt: Text description of objects to detect
+            max_frames: Optional cap on frames to process (reduces memory for long videos)
 
         Returns:
             VideoProcessResponse with detection results for all frames
@@ -72,10 +75,11 @@ class SamService:
             raise RuntimeError("Model not loaded. Call load_model() first.")
 
         session_id: str | None = None
+        step_start = time.perf_counter()
 
         try:
             # Step 1: Start a new session
-            logger.info(f"Starting session for video: {video_path}")
+            logger.info("[sam_service] start_session | path=%s", video_path)
             start_response = self.predictor.handle_request(
                 request={
                     "type": "start_session",
@@ -83,10 +87,15 @@ class SamService:
                 }
             )
             session_id = start_response["session_id"]
-            logger.debug(f"Session started: {session_id}")
+            logger.info(
+                "[sam_service] session started | session_id=%s | elapsed=%.1fs",
+                session_id,
+                time.perf_counter() - step_start,
+            )
 
             # Step 2: Add text prompt on frame 0
-            logger.info(f"Adding text prompt on frame 0: '{text_prompt}'")
+            t_prompt = time.perf_counter()
+            logger.info("[sam_service] add_prompt | frame=0 | text=%s", text_prompt[:40])
             add_prompt_response = self.predictor.handle_request(
                 request={
                     "type": "add_prompt",
@@ -120,9 +129,16 @@ class SamService:
             )
             detections.append(detection)
             processed_frame_indices.add(initial_frame_idx)
+            logger.info(
+                "[sam_service] add_prompt done | elapsed=%.1fs",
+                time.perf_counter() - t_prompt,
+            )
 
             # Step 3: Propagate detections through the entire video
-            logger.info("Propagating detections through video frames")
+            t_propagate = time.perf_counter()
+            logger.info("[sam_service] propagate start | max_frame_num_to_track=%s", max_frames)
+            frame_count = 0
+            log_interval = 10  # log every N frames
 
             # Use handle_stream_request for propagation
             for frame_result in self.predictor.handle_stream_request(
@@ -131,7 +147,7 @@ class SamService:
                     "session_id": session_id,
                     "propagation_direction": "both",  # Forward and backward from frame 0
                     "start_frame_index": 0,
-                    "max_frame_num_to_track": None,  # Process all frames
+                    "max_frame_num_to_track": max_frames,  # None = all frames
                 }
             ):
                 frame_idx = frame_result["frame_index"]
@@ -140,6 +156,16 @@ class SamService:
                 # Skip frame 0 as we already processed it
                 if frame_idx in processed_frame_indices:
                     continue
+
+                frame_count += 1
+                if frame_count % log_interval == 0 or frame_count == 1:
+                    elapsed = time.perf_counter() - t_propagate
+                    logger.info(
+                        "[sam_service] propagate progress | frame=%s | frames_so_far=%s | elapsed=%.1fs",
+                        frame_idx,
+                        frame_count,
+                        elapsed,
+                    )
 
                 # Update video dimensions from first non-empty frame
                 if len(outputs["out_binary_masks"]) > 0:
@@ -158,9 +184,11 @@ class SamService:
 
             # Sort detections by frame index
             detections.sort(key=lambda x: x.frame_index)
-
+            elapsed_propagate = time.perf_counter() - t_propagate
             logger.info(
-                f"Processed {len(detections)} frames with detections"
+                "[sam_service] propagate done | total_frames=%s | elapsed=%.1fs",
+                len(detections),
+                elapsed_propagate,
             )
 
             return VideoProcessResponse(

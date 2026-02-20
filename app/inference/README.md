@@ -51,6 +51,25 @@ curl http://localhost:8000/health
 docker-compose logs -f
 ```
 
+### Quick smoke test (~1–2 min with 5 frames)
+
+Use `max_frames: 5` to verify the pipeline without a long run:
+
+```powershell
+# PowerShell
+$body = '{"video_url":"https://res.cloudinary.com/dbujzulsx/video/upload/v1771607112/Cars_Moving_On_Road_Stock_Footage_-_Free_Download_-_Wave_ASMR_Stock_Footage_Riley_Kearl_360p_h264_jiuzxa.mp4","text_prompt":"cars","max_frames":5}'
+Invoke-RestMethod -Uri "http://localhost:8000/process-video" -Method Post -ContentType "application/json" -Body $body -TimeoutSec 120
+```
+
+```bash
+# curl
+curl -X POST http://localhost:8000/process-video \
+  -H "Content-Type: application/json" \
+  -d '{"video_url":"https://res.cloudinary.com/dbujzulsx/video/upload/v1771607112/Cars_Moving_On_Road_Stock_Footage_-_Free_Download_-_Wave_ASMR_Stock_Footage_Riley_Kearl_360p_h264_jiuzxa.mp4","text_prompt":"cars","max_frames":5}'
+```
+
+Inference is per-frame; even 5 frames can take ~1–2 minutes. Use `max_frames: 1` or `2` for a faster (~10–30 s) check.
+
 ## Local Development
 
 ### 1. Set Up Environment

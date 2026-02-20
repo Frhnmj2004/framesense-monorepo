@@ -15,6 +15,11 @@ class VideoProcessRequest(BaseModel):
         min_length=1,
         description="Text prompt describing objects to detect and segment",
     )
+    max_frames: int | None = Field(
+        default=None,
+        ge=1,
+        description="Optional cap on number of frames to process (reduces memory use for long videos)",
+    )
 
 
 class FrameDetection(BaseModel):

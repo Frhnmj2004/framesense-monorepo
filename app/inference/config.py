@@ -41,6 +41,13 @@ class Settings(BaseSettings):
         description="Video download timeout in seconds",
     )
 
+    # Cap frames when client does not send max_frames (avoids long runs and GPU max-out on long videos)
+    default_max_frames: int = Field(
+        default=90,
+        ge=0,
+        description="Default max frames when request omits max_frames (0 = no cap, process full video)",
+    )
+
     # Inference timeout per request
     inference_timeout: int = Field(
         default=300,

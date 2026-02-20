@@ -9,21 +9,24 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# Install system dependencies in one layer
+# Install system dependencies - use Python 3.10 (Ubuntu 22.04 default, no pkg_resources issues)
+# ffmpeg for trimming video to max_frames (reduces memory for long videos)
 RUN apt-get update && apt-get install -y \
-    python3.12 \
-    python3.12-dev \
+    python3.10 \
+    python3.10-dev \
     python3-pip \
     git \
     wget \
     curl \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/* \
-    && ln -s /usr/bin/python3.12 /usr/bin/python \
-    && ln -s /usr/bin/python3.12 /usr/bin/python3
+    && ln -sf /usr/bin/python3.10 /usr/bin/python \
+    && ln -sf /usr/bin/python3.10 /usr/bin/python3 \
+    && python3 -m pip install --no-cache-dir --upgrade pip setuptools wheel
 
 # Stage 1: Install PyTorch (cache this layer separately)
 FROM base AS pytorch-install
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel
+RUN pip install --no-cache-dir --upgrade pip setuptools>=69.0.0 wheel
 # Install PyTorch - this is slow but we cache it
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --no-cache-dir torch==2.7.0 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
@@ -32,10 +35,11 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 FROM pytorch-install AS sam3-install
 WORKDIR /tmp
 # Clone and install SAM 3 - cache git clone
+# Install without -e flag so package is copied to site-packages (not linked)
 RUN --mount=type=cache,target=/root/.cache/pip \
     git clone https://github.com/facebookresearch/sam3.git sam3 && \
     cd sam3 && \
-    pip install --no-cache-dir -e . && \
+    pip install --no-cache-dir . && \
     cd / && \
     rm -rf /tmp/sam3
 
