@@ -1,286 +1,299 @@
-# Video Annotation Platform - Inference Service
+# SAM 3 Video Inference Service
 
-Enterprise-grade Python inference microservice for SAM 3 (Segment Anything Model 3) segmentation.
+A production-ready FastAPI microservice for GPU-based video segmentation using Meta's SAM 3 (Segment Anything with Concepts) model.
 
 ## Features
 
-- **SAM 3 Integration**: Text-prompted and automatic image/video segmentation
-- **REST API**: Synchronous image segmentation endpoint
-- **Redis Job Queue**: Async video processing with idempotency
-- **S3 Integration**: Download videos and upload mask results
-- **GPU Support**: CUDA acceleration with fail-fast validation
-- **Prometheus Metrics**: Request/job/frame counters
-- **Structured Logging**: JSON-formatted logs
-- **Graceful Shutdown**: Handles SIGTERM/SIGINT properly
+- **Text-based object detection**: Detect and segment objects in videos using natural language prompts
+- **GPU-optimized**: Designed for NVIDIA GPUs (RTX 3090/4090/A4000, minimum 12GB VRAM)
+- **Stateless architecture**: No database required, fully stateless service
+- **Production-ready**: Error handling, health checks, and proper resource cleanup
 
 ## Architecture
 
-```
-Go Backend → POST /v1/segment (sync image segmentation)
-Go Backend → Redis Queue → Worker (async video processing)
-```
+The service loads the SAM 3 model once at startup and processes videos through the following pipeline:
 
-**TODO: GRPC** - REST endpoints marked for future gRPC migration in Phase 2.
+1. Download video from URL to temporary storage
+2. Initialize SAM 3 session with the video
+3. Add text prompt on frame 0
+4. Propagate detections through all frames
+5. Return structured JSON with bounding boxes and scores
+6. Cleanup temporary files and session
 
 ## Prerequisites
 
-- Python 3.10+
-- CUDA-capable GPU (optional, set `REQUIRE_GPU=false` for CPU)
-- Redis server
-- AWS S3 access (or S3-compatible storage)
+- **HuggingFace Account**: SAM 3 requires authentication to download checkpoints
+  - Request access at: https://huggingface.co/facebook/sam3
+  - Generate access token at: https://huggingface.co/settings/tokens
+- **NVIDIA GPU**: CUDA 12.6 compatible GPU with minimum 12GB VRAM
+- **Docker**: For containerized deployment
 
 ## Local Development
 
-### With GPU
-
-1. **Install dependencies:**
+### 1. Set Up Environment
 
 ```bash
+# Clone the repository
 cd app/inference
+
+# Set HuggingFace token (required for model download)
+export HF_TOKEN=your_huggingface_token_here
+
+# Optional: Configure other settings
+export MODEL_DEVICE=cuda
+export MAX_VIDEO_SIZE_MB=500
+export VIDEO_DOWNLOAD_TIMEOUT=120
+export INFERENCE_TIMEOUT=300
+```
+
+### 2. Install Dependencies
+
+**Option A: Using Docker (Recommended)**
+
+```bash
+# Build the Docker image
+docker build -t sam3-inference .
+
+# Run the container (requires NVIDIA Docker runtime)
+docker run --gpus all \
+  -p 8000:8000 \
+  -e HF_TOKEN=your_huggingface_token_here \
+  sam3-inference
+```
+
+**Option B: Local Python Installation**
+
+```bash
+# Create virtual environment
+python3.12 -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install PyTorch with CUDA 12.6
+pip install torch==2.7.0 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
+
+# Clone and install SAM 3
+git clone https://github.com/facebookresearch/sam3.git /tmp/sam3
+cd /tmp/sam3
+pip install -e .
+cd -
+
+# Install application dependencies
 pip install -r requirements.txt
 ```
 
-2. **Set environment variables:**
+### 3. Run the Service
 
 ```bash
-export MODEL_PATH=facebook/sam3
-export REQUIRE_GPU=true
-export INFERENCE_PORT=8000
-export MAX_CONCURRENCY=2
-export INFERENCE_TIMEOUT=30
-export SAMPLE_FPS=1.0
+# Using uvicorn directly
+uvicorn main:app --host 0.0.0.0 --port 8000
 
-# S3 Configuration
-export S3_REGION=us-east-1
-export S3_BUCKET=your-bucket-name
-export S3_ACCESS_KEY_ID=your-access-key
-export S3_SECRET_ACCESS_KEY=your-secret-key
-
-# Redis Configuration
-export REDIS_URL=redis://localhost:6379/0
-export REDIS_JOB_QUEUE=inference:jobs
-
-export ENVIRONMENT=development
+# Or using Python
+python main.py
 ```
 
-3. **Start Redis:**
+The service will be available at `http://localhost:8000`
+
+### 4. Test the Service
 
 ```bash
-docker run -d -p 6379:6379 redis:7-alpine
+# Health check
+curl http://localhost:8000/health
+
+# Process a video
+curl -X POST http://localhost:8000/process-video \
+  -H "Content-Type: application/json" \
+  -d '{
+    "video_url": "https://example.com/video.mp4",
+    "text_prompt": "yellow van"
+  }'
 ```
-
-4. **Run the API server:**
-
-```bash
-python cmd/server/main.py
-```
-
-The API will be available at `http://localhost:8000`
-
-### Without GPU (CPU Mode)
-
-Set `REQUIRE_GPU=false`:
-
-```bash
-export REQUIRE_GPU=false
-python cmd/server/main.py
-```
-
-**Note:** CPU mode is significantly slower and intended for development/testing only.
-
-## Running Redis Consumer (Worker)
-
-The Redis consumer processes async video jobs. Run it in a separate process:
-
-```bash
-python -m workers.redis_consumer
-```
-
-Or integrate it into your main process (see `cmd/server/main.py` for example).
-
-## Docker
-
-### Build and Run
-
-```bash
-cd app/inference
-docker build -t framesense-inference .
-docker run --gpus all -p 8000:8000 \
-  -e MODEL_PATH=facebook/sam3 \
-  -e S3_BUCKET=your-bucket \
-  -e S3_ACCESS_KEY_ID=your-key \
-  -e S3_SECRET_ACCESS_KEY=your-secret \
-  framesense-inference
-```
-
-### Docker Compose
-
-From the repository root:
-
-```bash
-docker-compose up inference redis
-```
-
-This starts both the inference service and Redis.
 
 ## API Endpoints
 
-### Health Check
+### `GET /health`
 
-```bash
-curl http://localhost:8000/health
-```
+Health check endpoint.
 
-Response:
+**Response:**
 ```json
 {
   "status": "ok"
 }
 ```
 
-### Segment Image
+### `POST /process-video`
 
-```bash
-curl -X POST http://localhost:8000/v1/segment \
-  -H "Content-Type: application/json" \
-  -d '{
-    "image_base64": "<base64_encoded_image>",
-    "prompt": "person"
-  }'
-```
+Process a video with SAM 3 text prompt.
 
-Response:
+**Request:**
 ```json
 {
-  "success": true,
-  "masks": [
+  "video_url": "https://example.com/video.mp4",
+  "text_prompt": "yellow van"
+}
+```
+
+**Response:**
+```json
+{
+  "session_id": "uuid-string",
+  "frames_processed": 120,
+  "detections": [
     {
-      "rle": "encoded_mask_string",
-      "bbox": [10, 20, 100, 200],
-      "score": 0.95
+      "frame_index": 0,
+      "boxes": [[100, 200, 300, 400], [500, 600, 700, 800]],
+      "scores": [0.98, 0.95],
+      "mask_shape": [1080, 1920]
+    },
+    {
+      "frame_index": 1,
+      "boxes": [[105, 205, 305, 405]],
+      "scores": [0.97],
+      "mask_shape": [1080, 1920]
     }
   ]
 }
 ```
 
-### Metrics (Prometheus)
+**Error Responses:**
+- `400`: Invalid request (empty prompt, etc.)
+- `422`: Validation error (invalid URL format, etc.)
+- `502`: Video download failure
+- `500`: Model inference error
+- `503`: Service not initialized
 
-```bash
-curl http://localhost:8000/metrics
+## RunPod Pod Deployment
+
+### 1. Create RunPod Pod
+
+1. Go to [RunPod](https://www.runpod.io/) and create a new Pod
+2. Select **Pod** (not Serverless) with NVIDIA GPU template
+3. Recommended GPU: RTX 3090 / 4090 / A4000 (minimum 12GB VRAM)
+4. Choose Ubuntu 22.04 base image
+
+### 2. Configure Pod Settings
+
+**Environment Variables:**
+```
+HF_TOKEN=your_huggingface_token_here
+MODEL_DEVICE=cuda
+MAX_VIDEO_SIZE_MB=500
+VIDEO_DOWNLOAD_TIMEOUT=120
+INFERENCE_TIMEOUT=300
 ```
 
-## Environment Variables
+**Port Mapping:**
+- Container Port: `8000`
+- Public Port: `8000` (or your preferred port)
+
+**Volume Mounts (Optional but Recommended):**
+- Mount point: `/root/.cache/huggingface`
+- This caches SAM 3 checkpoints for faster subsequent loads
+
+### 3. Build and Deploy
+
+**Option A: Build from Dockerfile**
+
+```bash
+# SSH into your RunPod pod
+# Clone your repository
+git clone <your-repo-url>
+cd framesense-monorepo/app/inference
+
+# Build Docker image
+docker build -t sam3-inference .
+
+# Run container
+docker run --gpus all \
+  -d \
+  --name sam3-inference \
+  -p 8000:8000 \
+  -e HF_TOKEN=$HF_TOKEN \
+  -v /root/.cache/huggingface:/root/.cache/huggingface \
+  sam3-inference
+```
+
+**Option B: Use RunPod Template**
+
+1. Create a custom template with the Dockerfile
+2. Set environment variables in RunPod UI
+3. Deploy directly from template
+
+### 4. Verify Deployment
+
+```bash
+# Check health endpoint
+curl http://<pod-ip>:8000/health
+
+# Test video processing
+curl -X POST http://<pod-ip>:8000/process-video \
+  -H "Content-Type: application/json" \
+  -d '{
+    "video_url": "https://example.com/video.mp4",
+    "text_prompt": "yellow van"
+  }'
+```
+
+### 5. Monitor Logs
+
+```bash
+# View container logs
+docker logs -f sam3-inference
+
+# Check GPU usage
+nvidia-smi
+```
+
+## Configuration
+
+All configuration is done via environment variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `MODEL_PATH` | `facebook/sam3` | HuggingFace model ID or local path |
-| `INFERENCE_PORT` | `8000` | HTTP server port |
-| `REQUIRE_GPU` | `true` | Fail-fast if CUDA unavailable |
-| `MAX_CONCURRENCY` | `2` | Max parallel inference calls |
-| `INFERENCE_TIMEOUT` | `30` | Per-request timeout (seconds) |
-| `SAMPLE_FPS` | `1.0` | Frames per second for video extraction |
-| `S3_REGION` | `us-east-1` | AWS region |
-| `S3_BUCKET` | - | S3 bucket name (required) |
-| `S3_ACCESS_KEY_ID` | - | AWS access key |
-| `S3_SECRET_ACCESS_KEY` | - | AWS secret key |
-| `S3_ENDPOINT` | - | S3-compatible endpoint (optional) |
-| `REDIS_URL` | `redis://localhost:6379/0` | Redis connection URL |
-| `REDIS_JOB_QUEUE` | `inference:jobs` | Redis queue name |
-| `ENVIRONMENT` | `development` | Environment name |
+| `HF_TOKEN` | None | HuggingFace access token (required) |
+| `MODEL_DEVICE` | `cuda` | Device for inference (`cuda` or `cpu`) |
+| `MAX_VIDEO_SIZE_MB` | `500` | Maximum video file size in MB |
+| `VIDEO_DOWNLOAD_TIMEOUT` | `120` | Video download timeout in seconds |
+| `INFERENCE_TIMEOUT` | `300` | Maximum inference time per request |
+| `HOST` | `0.0.0.0` | Server host |
+| `PORT` | `8000` | Server port |
 
-## Redis Job Format
+## Performance Considerations
 
-Jobs are pushed to Redis as JSON:
-
-```json
-{
-  "job_id": "unique-job-id",
-  "s3_key": "videos/input.mp4",
-  "callback_url": "http://go-backend:8080/api/jobs/callback"
-}
-```
-
-The worker:
-1. Downloads video from S3
-2. Extracts frames at configured FPS
-3. Runs SAM 3 segmentation on each frame
-4. Uploads mask results to S3 (`results/{job_id}/masks.json`)
-5. POSTs status to `callback_url`
-
-## Idempotency
-
-Jobs are idempotent: if a job with the same `job_id` is already processing or completed, it will be skipped. This is implemented using Redis `SET job:{job_id}:status processing NX`.
-
-## Testing
-
-Run tests:
-
-```bash
-pip install pytest
-pytest tests/
-```
-
-## Project Structure
-
-```
-app/inference/
-├── cmd/server/main.py      # Entry point
-├── app/
-│   ├── config.py           # Configuration (Pydantic)
-│   └── container.py        # DI container
-├── core/
-│   ├── model_loader.py     # SAM 3 model loading
-│   ├── predictor.py         # Inference with concurrency/timeout
-│   └── jobs.py              # Video job processing
-├── api/
-│   ├── routes.py            # FastAPI routes
-│   └── schemas.py           # Pydantic schemas
-├── infra/
-│   ├── logging.py           # JSON logger
-│   └── exceptions.py        # Custom exceptions
-├── workers/
-│   └── redis_consumer.py    # Redis job consumer
-├── tests/                   # Unit tests
-├── requirements.txt         # Dependencies
-└── Dockerfile               # Docker build
-```
-
-## Security Notes
-
-**TODO: AUTH** - Auth middleware stub exists but doesn't validate tokens in Phase 1. Implement token validation in Phase 2.
+- **Model Loading**: First startup takes 2-5 minutes to download and load the SAM 3 checkpoint (~4GB)
+- **Memory Usage**: Model requires ~4-6GB VRAM. Additional VRAM needed for video processing
+- **Processing Speed**: Depends on video length and resolution. Typical: 1-5 seconds per frame on RTX 3090
+- **Concurrent Requests**: Service processes one request at a time (single worker) to optimize GPU memory usage
 
 ## Troubleshooting
 
-### CUDA Not Available
+### Model fails to load
 
-If you see "CUDA is not available", either:
-- Set `REQUIRE_GPU=false` for CPU mode
-- Ensure NVIDIA drivers and CUDA are installed
-- Check GPU availability: `nvidia-smi`
+- Verify `HF_TOKEN` is set correctly
+- Check HuggingFace access: https://huggingface.co/facebook/sam3
+- Ensure sufficient disk space (~10GB for model cache)
 
-### Model Download Fails
+### CUDA out of memory
 
-The model is downloaded from HuggingFace on first run. Ensure:
-- Internet connection is available
-- HuggingFace token is set (if model is gated): `export HF_TOKEN=your-token`
+- Reduce video resolution or length
+- Ensure no other processes are using GPU
+- Check available VRAM: `nvidia-smi`
 
-### Redis Connection Errors
+### Video download fails
 
-Ensure Redis is running:
-```bash
-redis-cli ping
-```
+- Verify video URL is accessible
+- Check network connectivity
+- Increase `VIDEO_DOWNLOAD_TIMEOUT` if needed
+- Ensure video size is within `MAX_VIDEO_SIZE_MB` limit
 
-Should return `PONG`.
+### Empty detections returned
 
-## Next Steps (Phase 2+)
-
-- gRPC migration (marked with `TODO: GRPC`)
-- Token-based authentication (`TODO: AUTH`)
-- Advanced job orchestration
-- Multi-GPU support
-- Model versioning
+- Verify text prompt is descriptive and matches objects in video
+- Check video quality and resolution
+- Try different text prompts (SAM 3 supports open vocabulary)
 
 ## License
 
-Apache 2.0
+This service uses SAM 3, which is licensed under the SAM License. See:
+- SAM 3 License: https://github.com/facebookresearch/sam3/blob/main/LICENSE
+- SAM 3 Repository: https://github.com/facebookresearch/sam3

@@ -1,34 +1,17 @@
-# Core dependencies
-fastapi==0.115.0
-uvicorn[standard]==0.32.0
-pydantic==2.9.2
-pydantic-settings==2.5.2
+# FastAPI and server dependencies
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
 
-# Testing
-pytest>=8.0.0
-httpx>=0.27.0
+# HTTP client for video downloads
+requests>=2.31.0
 
-# ML dependencies
-torch>=2.7.0
-transformers>=4.45.0
-huggingface-hub>=0.24.0
+# Data validation and settings
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
 
-# Image processing
-Pillow>=10.4.0
-opencv-python>=4.10.0
-numpy>=1.26.0,<2.0.0
+# Note: PyTorch is installed separately in Dockerfile with CUDA support:
+# pip install torch==2.7.0 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
 
-# Mask encoding
-pycocotools>=2.0.7
-
-# AWS S3
-boto3>=1.35.0
-
-# Redis
-redis>=5.2.0
-
-# HTTP client
-requests>=2.32.0
-
-# Metrics
-prometheus-client>=0.21.0
+# Note: SAM 3 is installed from source in Dockerfile:
+# git clone https://github.com/facebookresearch/sam3.git
+# pip install -e .
