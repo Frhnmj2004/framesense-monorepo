@@ -13,13 +13,16 @@ logger = logging.getLogger(__name__)
 
 
 def _patch_autocast_disable() -> None:
-    """Disable torch.amp.autocast so SAM 3 runs in float32 and avoids BFloat16/float bias mismatch."""
-    _original = torch.amp.autocast
+    """Disable autocast so SAM 3 runs in float32 and avoids BFloat16/float bias mismatch.
+    Patches both torch.amp.autocast and torch.autocast (SAM 3 may use either)."""
+    _original_amp = torch.amp.autocast
 
     def _patched(*args: Any, enabled: bool = True, **kwargs: Any) -> Any:
-        return _original(*args, enabled=False, **kwargs)
+        return _original_amp(*args, enabled=False, **kwargs)
 
     torch.amp.autocast = _patched  # type: ignore[assignment]
+    if hasattr(torch, "autocast") and torch.autocast is not torch.amp.autocast:
+        torch.autocast = _patched  # type: ignore[assignment]
     logger.info("SAM 3 autocast disabled (inference will use float32)")
 
 

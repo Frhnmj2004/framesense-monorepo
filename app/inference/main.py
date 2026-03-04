@@ -1,5 +1,16 @@
 """FastAPI application entry point for SAM 3 inference service."""
 
+# Patch autocast before any code (including sam3) is loaded, so SAM 3 always sees disabled autocast
+import os
+if os.environ.get("DISABLE_SAM3_AUTOCAST", "").strip().lower() in ("1", "true", "yes"):
+    import torch
+    _orig_autocast = torch.amp.autocast
+    def _autocast_disabled(*args: object, enabled: bool = True, **kwargs: object):  # noqa: E501
+        return _orig_autocast(*args, enabled=False, **kwargs)
+    torch.amp.autocast = _autocast_disabled  # type: ignore[assignment]
+    if getattr(torch, "autocast", None) is not None:
+        torch.autocast = _autocast_disabled  # type: ignore[assignment]
+
 import asyncio
 import logging
 import time
