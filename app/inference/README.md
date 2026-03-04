@@ -17,7 +17,7 @@ The service loads the SAM 3 model once at startup and processes videos through t
 2. Initialize SAM 3 session with the video
 3. Add text prompt on frame 0
 4. Propagate detections through all frames
-5. Return structured JSON with bounding boxes and scores
+5. Return structured JSON with pixel-level segmentation masks (COCO RLE), bounding boxes, scores, and tracked object IDs
 6. Cleanup temporary files and session
 
 ## Prerequisites
@@ -225,13 +225,14 @@ Health check endpoint.
 
 ### `POST /process-video`
 
-Process a video with SAM 3 text prompt.
+Process a video with SAM 3 text prompt. Returns **pixel-level segmentation masks** (COCO RLE encoded) alongside bounding boxes and confidence scores for every detected object in every frame.
 
 **Request:**
 ```json
 {
   "video_url": "https://example.com/video.mp4",
-  "text_prompt": "yellow van"
+  "text_prompt": "yellow van",
+  "max_frames": 30
 }
 ```
 
@@ -239,23 +240,67 @@ Process a video with SAM 3 text prompt.
 ```json
 {
   "session_id": "uuid-string",
-  "frames_processed": 120,
+  "frames_processed": 30,
+  "video_width": 640,
+  "video_height": 360,
   "detections": [
     {
       "frame_index": 0,
-      "boxes": [[100, 200, 300, 400], [500, 600, 700, 800]],
-      "scores": [0.98, 0.95],
-      "mask_shape": [1080, 1920]
+      "objects": [
+        {
+          "object_id": 1,
+          "score": 0.98,
+          "box": [100.0, 200.0, 300.0, 400.0],
+          "mask_rle": {
+            "counts": "0 4520 12 628 14 626 ...",
+            "size": [360, 640]
+          }
+        },
+        {
+          "object_id": 2,
+          "score": 0.95,
+          "box": [500.0, 150.0, 620.0, 340.0],
+          "mask_rle": {
+            "counts": "0 8100 8 632 10 ...",
+            "size": [360, 640]
+          }
+        }
+      ]
     },
     {
       "frame_index": 1,
-      "boxes": [[105, 205, 305, 405]],
-      "scores": [0.97],
-      "mask_shape": [1080, 1920]
+      "objects": [
+        {
+          "object_id": 1,
+          "score": 0.97,
+          "box": [105.0, 205.0, 305.0, 405.0],
+          "mask_rle": {
+            "counts": "0 4530 11 629 13 ...",
+            "size": [360, 640]
+          }
+        }
+      ]
     }
   ]
 }
 ```
+
+**Response fields:**
+
+| Field | Description |
+|-------|-------------|
+| `video_width`, `video_height` | Video resolution in pixels — use to reconstruct masks |
+| `detections[].objects[].object_id` | Consistent across frames — same ID = same tracked object |
+| `detections[].objects[].score` | Detection confidence (0.0 – 1.0) |
+| `detections[].objects[].box` | Bounding box `[x1, y1, x2, y2]` in absolute pixels |
+| `detections[].objects[].mask_rle` | Pixel-level segmentation mask in COCO uncompressed RLE |
+
+**Mask RLE format:** The `counts` field is a space-separated string of run lengths in Fortran (column-major) order, starting with a 0-valued run. This is the standard COCO RLE format used by pycocotools, Detectron2, and other segmentation tools. To decode in the frontend, read the runs alternating between background (0) and foreground (1), filling a `[height, width]` array in column-major order.
+
+**Frontend rendering:** To highlight detected objects on video:
+1. Decode each `mask_rle` into a `(H, W)` binary array
+2. For each pixel where `mask[y][x] == 1`, overlay a semi-transparent color
+3. Use `object_id` to assign consistent colors per tracked object across frames
 
 **Error Responses:**
 - `400`: Invalid request (empty prompt, etc.)

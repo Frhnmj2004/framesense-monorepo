@@ -22,21 +22,41 @@ class VideoProcessRequest(BaseModel):
     )
 
 
+class MaskRLE(BaseModel):
+    """COCO-style run-length encoded binary mask."""
+
+    counts: str = Field(
+        ...,
+        description="Run-length encoded mask as a string (COCO uncompressed RLE format)",
+    )
+    size: list[int] = Field(
+        ...,
+        description="Mask dimensions [height, width]",
+    )
+
+
+class ObjectDetection(BaseModel):
+    """A single detected/tracked object within a frame."""
+
+    object_id: int = Field(..., description="Unique object ID (consistent across frames for tracking)")
+    score: float = Field(..., description="Detection confidence (0.0 to 1.0)")
+    box: list[float] = Field(
+        ...,
+        description="Bounding box [x1, y1, x2, y2] in absolute pixel coordinates",
+    )
+    mask_rle: MaskRLE = Field(
+        ...,
+        description="Pixel-level segmentation mask in COCO RLE format",
+    )
+
+
 class FrameDetection(BaseModel):
     """Detection results for a single frame."""
 
     frame_index: int = Field(..., description="Frame index in the video")
-    boxes: list[list[float]] = Field(
-        ...,
-        description="List of bounding boxes in [x1, y1, x2, y2] format (absolute coordinates)",
-    )
-    scores: list[float] = Field(
-        ...,
-        description="Confidence scores for each detection (0.0 to 1.0)",
-    )
-    mask_shape: list[int] = Field(
-        ...,
-        description="Shape of the mask [height, width] for reference",
+    objects: list[ObjectDetection] = Field(
+        default_factory=list,
+        description="Detected/tracked objects in this frame",
     )
 
 
@@ -44,10 +64,9 @@ class VideoProcessResponse(BaseModel):
     """Response schema for video processing endpoint."""
 
     session_id: str = Field(..., description="SAM 3 session ID used for processing")
-    frames_processed: int = Field(
-        ...,
-        description="Total number of frames processed",
-    )
+    frames_processed: int = Field(..., description="Total number of frames processed")
+    video_width: int = Field(..., description="Video width in pixels")
+    video_height: int = Field(..., description="Video height in pixels")
     detections: list[FrameDetection] = Field(
         ...,
         description="Detection results for each frame",

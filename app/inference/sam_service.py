@@ -7,9 +7,35 @@ from typing import Any
 import numpy as np
 import torch
 from config import settings
-from schemas import FrameDetection, VideoProcessResponse
+from schemas import FrameDetection, MaskRLE, ObjectDetection, VideoProcessResponse
 
 logger = logging.getLogger(__name__)
+
+
+def _mask_to_rle(binary_mask: np.ndarray) -> dict[str, Any]:
+    """
+    Encode a binary mask (H, W) into COCO uncompressed RLE format.
+
+    Fortran (column-major) order — the convention used by pycocotools/COCO/Detectron2.
+    Vectorized with numpy for speed on large masks.
+    """
+    h, w = binary_mask.shape
+    flat = binary_mask.flatten(order="F").astype(np.uint8)
+    n = len(flat)
+
+    if n == 0:
+        return {"counts": [0], "size": [h, w]}
+
+    # Find positions where value changes
+    diff_positions = np.where(flat[1:] != flat[:-1])[0] + 1
+    positions = np.concatenate(([0], diff_positions, [n]))
+    runs = np.diff(positions).tolist()
+
+    # COCO RLE starts with a 0-valued run
+    if flat[0] == 1:
+        runs.insert(0, 0)
+
+    return {"counts": runs, "size": [h, w]}
 
 
 class SamService:
@@ -68,16 +94,8 @@ class SamService:
         """
         Process a video with SAM 3 using a text prompt.
 
-        Args:
-            video_path: Path to the video file (MP4 or directory of JPEG frames)
-            text_prompt: Text description of objects to detect
-            max_frames: Optional cap on frames to process (reduces memory for long videos)
-
-        Returns:
-            VideoProcessResponse with detection results for all frames
-
-        Raises:
-            RuntimeError: If model is not loaded or inference fails
+        Returns pixel-level segmentation masks (RLE-encoded) and bounding boxes
+        for every detected object in every frame.
         """
         if self.predictor is None:
             raise RuntimeError("Model not loaded. Call load_model() first.")
@@ -91,7 +109,6 @@ class SamService:
         )
 
         try:
-            # Step 1: Start a new session (no autocast needed, just loads video)
             logger.info("[sam_service] start_session | path=%s", video_path)
             start_response = self.predictor.handle_request(
                 request={
@@ -106,7 +123,6 @@ class SamService:
                 time.perf_counter() - step_start,
             )
 
-            # Step 2: Add text prompt on frame 0 (under autocast)
             t_prompt = time.perf_counter()
             logger.info("[sam_service] add_prompt | frame=0 | text=%s", text_prompt[:40])
             with autocast_ctx:
@@ -119,39 +135,29 @@ class SamService:
                     }
                 )
 
-            # Get initial frame detection (frame 0)
             initial_outputs = add_prompt_response["outputs"]
             initial_frame_idx = add_prompt_response["frame_index"]
 
-            # Get video dimensions from first frame's mask shape
-            video_height, video_width = 1080, 1920  # Default fallback
-            if len(initial_outputs["out_binary_masks"]) > 0:
-                mask_shape = initial_outputs["out_binary_masks"][0].shape
-                video_height, video_width = mask_shape[0], mask_shape[1]
+            video_height, video_width = self._extract_video_dims(initial_outputs)
 
-            # Collect detections from all frames
             detections: list[FrameDetection] = []
             processed_frame_indices: set[int] = set()
 
-            # Process initial frame (frame 0) - always include it even if empty
-            detection = self._process_frame_outputs(
-                initial_outputs,
-                initial_frame_idx,
-                video_width,
-                video_height,
+            detection = self._build_frame_detection(
+                initial_outputs, initial_frame_idx, video_width, video_height,
             )
             detections.append(detection)
             processed_frame_indices.add(initial_frame_idx)
             logger.info(
-                "[sam_service] add_prompt done | elapsed=%.1fs",
+                "[sam_service] add_prompt done | objects=%d | elapsed=%.1fs",
+                len(detection.objects),
                 time.perf_counter() - t_prompt,
             )
 
-            # Step 3: Propagate detections through the entire video (under autocast)
             t_propagate = time.perf_counter()
             logger.info("[sam_service] propagate start | max_frame_num_to_track=%s", max_frames)
             frame_count = 0
-            log_interval = 10  # log every N frames
+            log_interval = 10
 
             propagate_autocast = (
                 torch.autocast(device_type="cuda", dtype=torch.bfloat16)
@@ -179,36 +185,31 @@ class SamService:
                         elapsed = time.perf_counter() - t_propagate
                         logger.info(
                             "[sam_service] propagate progress | frame=%s | frames_so_far=%s | elapsed=%.1fs",
-                            frame_idx,
-                            frame_count,
-                            elapsed,
+                            frame_idx, frame_count, elapsed,
                         )
 
-                    if len(outputs["out_binary_masks"]) > 0:
-                        mask_shape = outputs["out_binary_masks"][0].shape
-                        video_height, video_width = mask_shape[0], mask_shape[1]
+                    h, w = self._extract_video_dims(outputs)
+                    if h != 0:
+                        video_height, video_width = h, w
 
-                    detection = self._process_frame_outputs(
-                        outputs,
-                        frame_idx,
-                        video_width,
-                        video_height,
+                    detection = self._build_frame_detection(
+                        outputs, frame_idx, video_width, video_height,
                     )
                     detections.append(detection)
                     processed_frame_indices.add(frame_idx)
 
-            # Sort detections by frame index
             detections.sort(key=lambda x: x.frame_index)
             elapsed_propagate = time.perf_counter() - t_propagate
             logger.info(
                 "[sam_service] propagate done | total_frames=%s | elapsed=%.1fs",
-                len(detections),
-                elapsed_propagate,
+                len(detections), elapsed_propagate,
             )
 
             return VideoProcessResponse(
                 session_id=session_id,
                 frames_processed=len(detections),
+                video_width=video_width,
+                video_height=video_height,
                 detections=detections,
             )
 
@@ -217,7 +218,6 @@ class SamService:
             raise RuntimeError(f"Video processing failed: {e}") from e
 
         finally:
-            # Step 4: Always close the session to free GPU memory
             if session_id is not None:
                 try:
                     logger.debug(f"Closing session: {session_id}")
@@ -230,80 +230,62 @@ class SamService:
                 except Exception as e:
                     logger.warning(f"Error closing session {session_id}: {e}")
 
-    def _process_frame_outputs(
+    @staticmethod
+    def _extract_video_dims(outputs: dict[str, np.ndarray]) -> tuple[int, int]:
+        masks = outputs["out_binary_masks"]
+        if len(masks) > 0:
+            return int(masks[0].shape[0]), int(masks[0].shape[1])
+        return 0, 0
+
+    def _build_frame_detection(
         self,
         outputs: dict[str, np.ndarray],
         frame_idx: int,
         video_width: int,
         video_height: int,
     ) -> FrameDetection:
-        """
-        Process SAM 3 frame outputs into FrameDetection format.
-
-        Args:
-            outputs: SAM 3 outputs dict with out_obj_ids, out_probs, out_boxes_xywh, out_binary_masks
-            frame_idx: Frame index
-            video_width: Video width in pixels
-            video_height: Video height in pixels
-
-        Returns:
-            FrameDetection with converted boxes and scores
-        """
+        """Convert raw SAM 3 outputs into FrameDetection with RLE masks."""
         obj_ids = outputs["out_obj_ids"]
         probs = outputs["out_probs"]
-        boxes_xywh = outputs["out_binary_masks"]  # We'll compute boxes from masks
+        masks = outputs["out_binary_masks"]  # (N, H, W) bool
+        boxes_xywh = outputs["out_boxes_xywh"]  # (N, 4) normalized
 
-        # Get mask shape from first mask
-        if len(outputs["out_binary_masks"]) > 0:
-            mask_shape = outputs["out_binary_masks"][0].shape
-        else:
-            mask_shape = [video_height, video_width]
+        objects: list[ObjectDetection] = []
 
-        # Convert normalized xywh boxes to absolute xyxy coordinates
-        # SAM 3 provides out_boxes_xywh in normalized format [x, y, w, h] (0-1 range)
-        # We need to convert to absolute [x1, y1, x2, y2] in pixels
-        boxes_xyxy: list[list[float]] = []
+        for i in range(len(obj_ids)):
+            mask = masks[i]  # (H, W) bool
+            rle = _mask_to_rle(mask)
 
-        if "out_boxes_xywh" in outputs and len(outputs["out_boxes_xywh"]) > 0:
-            boxes_xywh_normalized = outputs["out_boxes_xywh"]
-            for box in boxes_xywh_normalized:
-                # Convert from normalized [x, y, w, h] to absolute [x1, y1, x2, y2]
-                x_norm, y_norm, w_norm, h_norm = box
-                x1 = x_norm * video_width
-                y1 = y_norm * video_height
-                x2 = (x_norm + w_norm) * video_width
-                y2 = (y_norm + h_norm) * video_height
-                boxes_xyxy.append([float(x1), float(y1), float(x2), float(y2)])
-        elif len(outputs["out_binary_masks"]) > 0:
-            # Fallback: compute boxes from masks if out_boxes_xywh not available
-            for mask in outputs["out_binary_masks"]:
-                # Find bounding box from mask
+            # Normalized xywh -> absolute xyxy
+            if len(boxes_xywh) > i:
+                x_n, y_n, w_n, h_n = boxes_xywh[i]
+                box = [
+                    float(x_n * video_width),
+                    float(y_n * video_height),
+                    float((x_n + w_n) * video_width),
+                    float((y_n + h_n) * video_height),
+                ]
+            else:
                 rows = np.any(mask, axis=1)
                 cols = np.any(mask, axis=0)
                 if rows.any() and cols.any():
                     y_min, y_max = np.where(rows)[0][[0, -1]]
                     x_min, x_max = np.where(cols)[0][[0, -1]]
-                    boxes_xyxy.append(
-                        [
-                            float(x_min),
-                            float(y_min),
-                            float(x_max + 1),
-                            float(y_max + 1),
-                        ]
-                    )
+                    box = [float(x_min), float(y_min), float(x_max + 1), float(y_max + 1)]
                 else:
-                    # Empty mask - skip or add empty box
-                    boxes_xyxy.append([0.0, 0.0, 0.0, 0.0])
+                    box = [0.0, 0.0, 0.0, 0.0]
 
-        # Convert scores to list
-        scores_list = [float(score) for score in probs]
+            # RLE counts as space-separated string for compact JSON
+            rle_str = " ".join(str(c) for c in rle["counts"])
 
-        return FrameDetection(
-            frame_index=int(frame_idx),
-            boxes=boxes_xyxy,
-            scores=scores_list,
-            mask_shape=[int(mask_shape[0]), int(mask_shape[1])],
-        )
+            objects.append(ObjectDetection(
+                object_id=int(obj_ids[i]),
+                score=float(probs[i]),
+                box=box,
+                mask_rle=MaskRLE(counts=rle_str, size=rle["size"]),
+            ))
+
+        return FrameDetection(frame_index=int(frame_idx), objects=objects)
 
     def shutdown(self) -> None:
         """Shutdown the SAM service and free resources."""
