@@ -43,21 +43,16 @@ class SamService:
 
             self.predictor = build_sam3_video_predictor()
 
-            # SAM 3's multi-GPU code path (sam3_image.py line 836) explicitly casts
-            # backbone FPN features to bfloat16 for all-gather, even on a single GPU.
-            # These bfloat16 tensors are then fed into conv_s0/conv_s1 in the tracker's
-            # mask decoder, whose weights default to float32, causing:
-            #   "Input type (c10::BFloat16) and bias type (float) should be the same"
-            # Fix: convert ONLY conv_s0 and conv_s1 to bfloat16 so they accept the
-            # bfloat16 inputs. The rest of the model stays float32.
-            if self.device == "cuda" and torch.cuda.is_bf16_supported():
-                sam_decoder = self.predictor.model.tracker.sam_mask_decoder
-                if hasattr(sam_decoder, "conv_s0"):
-                    sam_decoder.conv_s0 = sam_decoder.conv_s0.to(torch.bfloat16)
-                    logger.info("Converted sam_mask_decoder.conv_s0 to bfloat16")
-                if hasattr(sam_decoder, "conv_s1"):
-                    sam_decoder.conv_s1 = sam_decoder.conv_s1.to(torch.bfloat16)
-                    logger.info("Converted sam_mask_decoder.conv_s1 to bfloat16")
+            # SAM 3 internally casts tensors to bfloat16 (sam3_image.py:836) and
+            # expects the model to run under torch.autocast so PyTorch automatically
+            # handles dtype promotion between float32 weights and bfloat16 activations.
+            # The demo inference path (add_prompt / propagate_in_video) is NOT decorated
+            # with @torch.autocast, so we must wrap our calls ourselves.
+            self._use_autocast = (
+                self.device == "cuda" and torch.cuda.is_bf16_supported()
+            )
+            if self._use_autocast:
+                logger.info("Will use bfloat16 autocast for inference (GPU supports bf16)")
 
             logger.info("SAM 3 video predictor loaded successfully")
         except Exception as e:
@@ -89,9 +84,14 @@ class SamService:
 
         session_id: str | None = None
         step_start = time.perf_counter()
+        autocast_ctx = (
+            torch.autocast(device_type="cuda", dtype=torch.bfloat16)
+            if self._use_autocast
+            else torch.inference_mode()
+        )
 
         try:
-            # Step 1: Start a new session
+            # Step 1: Start a new session (no autocast needed, just loads video)
             logger.info("[sam_service] start_session | path=%s", video_path)
             start_response = self.predictor.handle_request(
                 request={
@@ -106,24 +106,24 @@ class SamService:
                 time.perf_counter() - step_start,
             )
 
-            # Step 2: Add text prompt on frame 0
+            # Step 2: Add text prompt on frame 0 (under autocast)
             t_prompt = time.perf_counter()
             logger.info("[sam_service] add_prompt | frame=0 | text=%s", text_prompt[:40])
-            add_prompt_response = self.predictor.handle_request(
-                request={
-                    "type": "add_prompt",
-                    "session_id": session_id,
-                    "frame_index": 0,
-                    "text": text_prompt,
-                }
-            )
+            with autocast_ctx:
+                add_prompt_response = self.predictor.handle_request(
+                    request={
+                        "type": "add_prompt",
+                        "session_id": session_id,
+                        "frame_index": 0,
+                        "text": text_prompt,
+                    }
+                )
 
             # Get initial frame detection (frame 0)
             initial_outputs = add_prompt_response["outputs"]
             initial_frame_idx = add_prompt_response["frame_index"]
 
             # Get video dimensions from first frame's mask shape
-            # If no masks, we'll get dimensions from propagated frames
             video_height, video_width = 1080, 1920  # Default fallback
             if len(initial_outputs["out_binary_masks"]) > 0:
                 mask_shape = initial_outputs["out_binary_masks"][0].shape
@@ -147,53 +147,55 @@ class SamService:
                 time.perf_counter() - t_prompt,
             )
 
-            # Step 3: Propagate detections through the entire video
+            # Step 3: Propagate detections through the entire video (under autocast)
             t_propagate = time.perf_counter()
             logger.info("[sam_service] propagate start | max_frame_num_to_track=%s", max_frames)
             frame_count = 0
             log_interval = 10  # log every N frames
 
-            # Use handle_stream_request for propagation
-            for frame_result in self.predictor.handle_stream_request(
-                request={
-                    "type": "propagate_in_video",
-                    "session_id": session_id,
-                    "propagation_direction": "both",  # Forward and backward from frame 0
-                    "start_frame_index": 0,
-                    "max_frame_num_to_track": max_frames,  # None = all frames
-                }
-            ):
-                frame_idx = frame_result["frame_index"]
-                outputs = frame_result["outputs"]
+            propagate_autocast = (
+                torch.autocast(device_type="cuda", dtype=torch.bfloat16)
+                if self._use_autocast
+                else torch.inference_mode()
+            )
+            with propagate_autocast:
+                for frame_result in self.predictor.handle_stream_request(
+                    request={
+                        "type": "propagate_in_video",
+                        "session_id": session_id,
+                        "propagation_direction": "both",
+                        "start_frame_index": 0,
+                        "max_frame_num_to_track": max_frames,
+                    }
+                ):
+                    frame_idx = frame_result["frame_index"]
+                    outputs = frame_result["outputs"]
 
-                # Skip frame 0 as we already processed it
-                if frame_idx in processed_frame_indices:
-                    continue
+                    if frame_idx in processed_frame_indices:
+                        continue
 
-                frame_count += 1
-                if frame_count % log_interval == 0 or frame_count == 1:
-                    elapsed = time.perf_counter() - t_propagate
-                    logger.info(
-                        "[sam_service] propagate progress | frame=%s | frames_so_far=%s | elapsed=%.1fs",
+                    frame_count += 1
+                    if frame_count % log_interval == 0 or frame_count == 1:
+                        elapsed = time.perf_counter() - t_propagate
+                        logger.info(
+                            "[sam_service] propagate progress | frame=%s | frames_so_far=%s | elapsed=%.1fs",
+                            frame_idx,
+                            frame_count,
+                            elapsed,
+                        )
+
+                    if len(outputs["out_binary_masks"]) > 0:
+                        mask_shape = outputs["out_binary_masks"][0].shape
+                        video_height, video_width = mask_shape[0], mask_shape[1]
+
+                    detection = self._process_frame_outputs(
+                        outputs,
                         frame_idx,
-                        frame_count,
-                        elapsed,
+                        video_width,
+                        video_height,
                     )
-
-                # Update video dimensions from first non-empty frame
-                if len(outputs["out_binary_masks"]) > 0:
-                    mask_shape = outputs["out_binary_masks"][0].shape
-                    video_height, video_width = mask_shape[0], mask_shape[1]
-
-                # Process this frame's outputs (include even if empty)
-                detection = self._process_frame_outputs(
-                    outputs,
-                    frame_idx,
-                    video_width,
-                    video_height,
-                )
-                detections.append(detection)
-                processed_frame_indices.add(frame_idx)
+                    detections.append(detection)
+                    processed_frame_indices.add(frame_idx)
 
             # Sort detections by frame index
             detections.sort(key=lambda x: x.frame_index)
