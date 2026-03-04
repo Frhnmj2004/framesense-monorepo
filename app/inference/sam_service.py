@@ -43,15 +43,21 @@ class SamService:
 
             self.predictor = build_sam3_video_predictor()
 
-            # SAM 3 explicitly casts backbone FPN features to bfloat16 (sam3_image.py)
-            # before feeding them to conv_s0/conv_s1 in the tracker's mask decoder.
-            # The model weights default to float32, causing a dtype mismatch:
+            # SAM 3's multi-GPU code path (sam3_image.py line 836) explicitly casts
+            # backbone FPN features to bfloat16 for all-gather, even on a single GPU.
+            # These bfloat16 tensors are then fed into conv_s0/conv_s1 in the tracker's
+            # mask decoder, whose weights default to float32, causing:
             #   "Input type (c10::BFloat16) and bias type (float) should be the same"
-            # Converting the whole model to bfloat16 aligns weight dtypes with the
-            # intentional bfloat16 intermediate tensors.
+            # Fix: convert ONLY conv_s0 and conv_s1 to bfloat16 so they accept the
+            # bfloat16 inputs. The rest of the model stays float32.
             if self.device == "cuda" and torch.cuda.is_bf16_supported():
-                logger.info("Converting SAM 3 model to bfloat16 for dtype consistency")
-                self.predictor.model = self.predictor.model.to(torch.bfloat16)
+                sam_decoder = self.predictor.model.tracker.sam_mask_decoder
+                if hasattr(sam_decoder, "conv_s0"):
+                    sam_decoder.conv_s0 = sam_decoder.conv_s0.to(torch.bfloat16)
+                    logger.info("Converted sam_mask_decoder.conv_s0 to bfloat16")
+                if hasattr(sam_decoder, "conv_s1"):
+                    sam_decoder.conv_s1 = sam_decoder.conv_s1.to(torch.bfloat16)
+                    logger.info("Converted sam_mask_decoder.conv_s1 to bfloat16")
 
             logger.info("SAM 3 video predictor loaded successfully")
         except Exception as e:
