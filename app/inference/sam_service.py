@@ -6,12 +6,21 @@ from typing import Any
 
 import numpy as np
 import torch
-from sam3.model_builder import build_sam3_video_predictor
-
 from config import settings
 from schemas import FrameDetection, VideoProcessResponse
 
 logger = logging.getLogger(__name__)
+
+
+def _patch_autocast_disable() -> None:
+    """Disable torch.amp.autocast so SAM 3 runs in float32 and avoids BFloat16/float bias mismatch."""
+    _original = torch.amp.autocast
+
+    def _patched(*args: Any, enabled: bool = True, **kwargs: Any) -> Any:
+        return _original(*args, enabled=False, **kwargs)
+
+    torch.amp.autocast = _patched  # type: ignore[assignment]
+    logger.info("SAM 3 autocast disabled (inference will use float32)")
 
 
 class SamService:
@@ -41,6 +50,13 @@ class SamService:
             self.device = "cpu"
 
         try:
+            # Workaround: on some environments (e.g. RunPod) SAM 3's bfloat16 autocast causes
+            # "Input type (BFloat16) and bias type (float) should be the same". Disable autocast
+            # so inference runs in float32.
+            if getattr(settings, "disable_sam3_autocast", False):
+                _patch_autocast_disable()
+            from sam3.model_builder import build_sam3_video_predictor
+
             # Build SAM 3 video predictor
             # This will automatically download checkpoints from HuggingFace if needed
             # Requires HF_TOKEN environment variable for gated access

@@ -30,6 +30,14 @@ class Settings(BaseSettings):
         description="Device to run inference on (cuda or cpu)",
     )
 
+    # Disable SAM 3's internal torch.amp.autocast (bfloat16) to avoid dtype mismatch on some
+    # environments (e.g. RunPod) where "Input type (BFloat16) and bias type (float) should be the same".
+    # Set to True to run inference in float32; slightly slower but avoids the error.
+    disable_sam3_autocast: bool = Field(
+        default=False,
+        description="Disable SAM 3 autocast (use float32); set True if you see BFloat16/float mismatch",
+    )
+
     # Video download constraints
     max_video_size_mb: int = Field(
         default=500,
@@ -41,11 +49,12 @@ class Settings(BaseSettings):
         description="Video download timeout in seconds",
     )
 
-    # Cap frames when client does not send max_frames (avoids long runs and GPU max-out on long videos)
+    # Cap frames when client does not send max_frames (0 = no cap, process full video).
+    # 90 = safe for 6–12 GB VRAM; 300 = reasonable for A40/24GB+; 0 = no limit.
     default_max_frames: int = Field(
-        default=90,
+        default=300,
         ge=0,
-        description="Default max frames when request omits max_frames (0 = no cap, process full video)",
+        description="Default max frames when request omits max_frames (0 = no cap)",
     )
 
     # Inference timeout per request

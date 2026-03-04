@@ -264,81 +264,95 @@ Process a video with SAM 3 text prompt.
 - `500`: Model inference error
 - `503`: Service not initialized
 
-## RunPod Pod Deployment
+## RunPod Pod Deployment (Step-by-Step)
 
-### 1. Create RunPod Pod
+Use this when your **backend and frontend are on Railway** and only the **GPU inference** runs on RunPod. The Railway backend will call the RunPod inference URL.
 
-1. Go to [RunPod](https://www.runpod.io/) and create a new Pod
-2. Select **Pod** (not Serverless) with NVIDIA GPU template
-3. Recommended GPU: RTX 3090 / 4090 / A4000 (minimum 12GB VRAM)
-4. Choose Ubuntu 22.04 base image
+**Architecture:** `Frontend (Railway) → Backend (Railway) → Inference (RunPod, this service)`
 
-### 2. Configure Pod Settings
+### Step 1: From RunPod Console Home
 
-**Environment Variables:**
-```
-HF_TOKEN=your_huggingface_token_here
-MODEL_DEVICE=cuda
-MAX_VIDEO_SIZE_MB=500
-VIDEO_DOWNLOAD_TIMEOUT=120
-INFERENCE_TIMEOUT=300
-```
+1. In the left sidebar, click **Manage → Pods**.
+2. Click **+ Deploy** or **+ New Pod**.
 
-**Port Mapping:**
-- Container Port: `8000`
-- Public Port: `8000` (or your preferred port)
+### Step 2: Choose a GPU (Demo Phase)
 
-**Volume Mounts (Optional but Recommended):**
-- Mount point: `/root/.cache/huggingface`
-- This caches SAM 3 checkpoints for faster subsequent loads
+- **Recommended for demo (good speed, low cost):** **RTX 3090** (24 GB) — ~\$0.44/hr. About **5–7× faster** than a 6 GB laptop GPU.
+- **Faster option:** **RTX 4090** (~\$0.74/hr) or **A10G** (~\$0.76/hr) — ~10–15× faster.
+- **Avoid:** GPUs with &lt;12 GB VRAM (SAM 3 needs headroom; 6 GB was your limit locally).
 
-### 3. Build and Deploy
+Select **Pod** (not Serverless). Pick a template with **Ubuntu 22.04** and one of the GPUs above.
 
-**Option A: Build from Dockerfile**
+### Step 3: Configure the Pod
 
-```bash
-# SSH into your RunPod pod
-# Clone your repository
-git clone <your-repo-url>
-cd framesense-monorepo/app/inference
+- **Container Image:** Leave blank if you will build from your repo (see Step 5). Or use a pre-built image if you push to a registry.
+- **Expose HTTP Ports:** Add **8000** (so RunPod gives you a public URL like `https://xxxx-8000.proxy.runpod.net`).
+- **Volume (optional but recommended):** Add a volume and mount it at **/root/.cache/huggingface** so the SAM 3 checkpoint is cached across restarts.
+- **Secrets / Environment variables:** Add these (use RunPod **Secrets** for `HF_TOKEN` so it’s not visible in the UI):
+  - `HF_TOKEN` — your HuggingFace token (required for SAM 3).
+  - `MODEL_DEVICE=cuda`
+  - `DEFAULT_MAX_FRAMES=300` — default cap when the client doesn’t send `max_frames` (300 is tuned for A40/24GB+; use `0` for no cap).
+  - `MAX_VIDEO_SIZE_MB=500`
+  - `VIDEO_DOWNLOAD_TIMEOUT=120`
+  - `INFERENCE_TIMEOUT=300`
 
-# Build Docker image
-docker build -t sam3-inference .
+### Step 4: Deploy and Wait
 
-# Run container
-# Pass environment variables directly (recommended)
-docker run --gpus all \
-  -d \
-  --name sam3-inference \
-  -p 8000:8000 \
-  -e HF_TOKEN=$HF_TOKEN \
-  -e MODEL_DEVICE=cuda \
-  -v /root/.cache/huggingface:/root/.cache/huggingface \
-  sam3-inference
-```
+- Click **Deploy** and wait for the Pod to be **Running**.
+- Note the **Pod ID** and the **Public URL** for port 8000 (e.g. `https://xxxx-8000.proxy.runpod.net`). This is your **inference base URL**.
 
-**Alternative: Using docker-compose**
+### Step 5: Build and Run the Inference Service on the Pod
 
-A `docker-compose.yml` file is already included in the repository. Simply:
+1. Click the Pod → **Connect** → **Start Web Terminal** (or use SSH if you prefer).
+2. In the terminal:
+   ```bash
+   git clone https://github.com/YOUR_ORG/framesense-monorepo.git
+   cd framesense-monorepo/app/inference
+   ```
+3. Set env vars (or use RunPod Secrets so they’re already in the environment):
+   ```bash
+   export HF_TOKEN=your_huggingface_token
+   export DEFAULT_MAX_FRAMES=300
+   ```
+4. Build and run with Docker:
+   ```bash
+   docker build -t sam3-inference .
+   docker run --gpus all -d --name sam3-inference -p 8000:8000 \
+     -e HF_TOKEN -e DEFAULT_MAX_FRAMES=300 \
+     -v /root/.cache/huggingface:/root/.cache/huggingface \
+     sam3-inference
+   ```
+5. Wait **5–10 minutes** for the model to load (first time). Then:
+   ```bash
+   curl https://YOUR_POD_ID-8000.proxy.runpod.net/health
+   ```
+   You should get `{"status":"ok"}`.
 
-```bash
-# Make sure .env file exists with HF_TOKEN
-cp .env.example .env
-# Edit .env and add your token
+### Step 6: Connect Railway Backend to RunPod
 
-# Build and start
-docker-compose up -d
+In your **Railway** backend service:
 
-# View logs
-docker-compose logs -f inference
-```
+1. Add an environment variable, e.g. **`INFERENCE_URL`** = `https://YOUR_POD_ID-8000.proxy.runpod.net` (no trailing slash).
+2. In your backend code, call the inference service at:
+   - `POST {INFERENCE_URL}/process-video`
+   - Body: `{ "video_url": "...", "text_prompt": "...", "max_frames": 300 }` (omit `max_frames` to use RunPod’s `DEFAULT_MAX_FRAMES`).
 
-The docker-compose file automatically:
-- Loads environment variables from `.env` file
-- Sets up GPU support
-- Mounts HuggingFace cache volume
-- Configures health checks
-- Sets up proper restart policies
+That’s it. Frontend and API live on Railway; heavy GPU work runs on RunPod.
+
+### Environment Variables Reference (RunPod / .env)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `HF_TOKEN` | — | **Required.** HuggingFace token for SAM 3. |
+| `MODEL_DEVICE` | `cuda` | `cuda` or `cpu`. |
+| `DEFAULT_MAX_FRAMES` | `300` | Default max frames when client omits `max_frames` (300 for A40/24GB+; use `0` for no cap). |
+| `MAX_VIDEO_SIZE_MB` | `500` | Max video download size (MB). |
+| `VIDEO_DOWNLOAD_TIMEOUT` | `120` | Download timeout (seconds). |
+| `INFERENCE_TIMEOUT` | `300` | Request timeout (seconds). |
+| `HOST` | `0.0.0.0` | Bind host. |
+| `PORT` | `8000` | Bind port. |
+
+Frame limit: it’s controlled by **env** `DEFAULT_MAX_FRAMES` (server default) and/or by the **request** body field **`max_frames`** (per request). Both are already supported; no code change needed.
 
 **Option B: Use RunPod Template**
 

@@ -17,8 +17,8 @@ services:
       # Video download settings
       - MAX_VIDEO_SIZE_MB=${MAX_VIDEO_SIZE_MB:-500}
       - VIDEO_DOWNLOAD_TIMEOUT=${VIDEO_DOWNLOAD_TIMEOUT:-120}
-      # Inference settings (default max frames when client omits it; 0 = no cap)
-      - DEFAULT_MAX_FRAMES=${DEFAULT_MAX_FRAMES:-90}
+      # Inference settings (default max frames when client omits it; 0 = no cap; 300 for A40/24GB+)
+      - DEFAULT_MAX_FRAMES=${DEFAULT_MAX_FRAMES:-300}
       - INFERENCE_TIMEOUT=${INFERENCE_TIMEOUT:-300}
       # Server configuration
       - HOST=${HOST:-0.0.0.0}
