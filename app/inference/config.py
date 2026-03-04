@@ -30,14 +30,6 @@ class Settings(BaseSettings):
         description="Device to run inference on (cuda or cpu)",
     )
 
-    # Disable SAM 3's internal torch.amp.autocast (bfloat16) to avoid dtype mismatch on some
-    # environments (e.g. RunPod) where "Input type (BFloat16) and bias type (float) should be the same".
-    # Set to True to run inference in float32; slightly slower but avoids the error.
-    disable_sam3_autocast: bool = Field(
-        default=False,
-        description="Disable SAM 3 autocast (use float32); set True if you see BFloat16/float mismatch",
-    )
-
     # Video download constraints
     max_video_size_mb: int = Field(
         default=500,

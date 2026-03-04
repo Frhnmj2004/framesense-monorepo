@@ -12,20 +12,6 @@ from schemas import FrameDetection, VideoProcessResponse
 logger = logging.getLogger(__name__)
 
 
-def _patch_autocast_disable() -> None:
-    """Disable autocast so SAM 3 runs in float32 and avoids BFloat16/float bias mismatch.
-    Patches both torch.amp.autocast and torch.autocast (SAM 3 may use either)."""
-    _original_amp = torch.amp.autocast
-
-    def _patched(*args: Any, enabled: bool = True, **kwargs: Any) -> Any:
-        return _original_amp(*args, enabled=False, **kwargs)
-
-    torch.amp.autocast = _patched  # type: ignore[assignment]
-    if hasattr(torch, "autocast") and torch.autocast is not torch.amp.autocast:
-        torch.autocast = _patched  # type: ignore[assignment]
-    logger.info("SAM 3 autocast disabled (inference will use float32)")
-
-
 class SamService:
     """Service wrapper for SAM 3 video predictor."""
 
@@ -53,17 +39,19 @@ class SamService:
             self.device = "cpu"
 
         try:
-            # Workaround: on some environments (e.g. RunPod) SAM 3's bfloat16 autocast causes
-            # "Input type (BFloat16) and bias type (float) should be the same". Disable autocast
-            # so inference runs in float32.
-            if getattr(settings, "disable_sam3_autocast", False):
-                _patch_autocast_disable()
             from sam3.model_builder import build_sam3_video_predictor
 
-            # Build SAM 3 video predictor
-            # This will automatically download checkpoints from HuggingFace if needed
-            # Requires HF_TOKEN environment variable for gated access
             self.predictor = build_sam3_video_predictor()
+
+            # SAM 3 explicitly casts backbone FPN features to bfloat16 (sam3_image.py)
+            # before feeding them to conv_s0/conv_s1 in the tracker's mask decoder.
+            # The model weights default to float32, causing a dtype mismatch:
+            #   "Input type (c10::BFloat16) and bias type (float) should be the same"
+            # Converting the whole model to bfloat16 aligns weight dtypes with the
+            # intentional bfloat16 intermediate tensors.
+            if self.device == "cuda" and torch.cuda.is_bf16_supported():
+                logger.info("Converting SAM 3 model to bfloat16 for dtype consistency")
+                self.predictor.model = self.predictor.model.to(torch.bfloat16)
 
             logger.info("SAM 3 video predictor loaded successfully")
         except Exception as e:

@@ -436,6 +436,13 @@ All configuration is done via environment variables. You can set them in two way
 - Increase `VIDEO_DOWNLOAD_TIMEOUT` if needed
 - Ensure video size is within `MAX_VIDEO_SIZE_MB` limit
 
+### BFloat16 / float dtype mismatch (`Input type (c10::BFloat16) and bias type (float) should be the same`)
+
+This error occurs when the model weights are in float32 but SAM 3 internally casts backbone features to bfloat16 (hardcoded in `sam3/model/sam3_image.py`). The service automatically converts the model to bfloat16 on startup when running on a CUDA GPU that supports bf16, so you should not see this error. If you do:
+
+- Verify your GPU supports bfloat16 (`torch.cuda.is_bf16_supported()` should return `True`). All Ampere (A100, A40, RTX 3090) and newer GPUs support it.
+- If your GPU does NOT support bfloat16 (e.g. Volta V100), you will need to patch SAM 3 source code to remove the explicit `.to(torch.bfloat16)` cast.
+
 ### Empty detections returned
 
 - Verify text prompt is descriptive and matches objects in video
