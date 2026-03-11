@@ -1,7 +1,9 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
@@ -58,15 +60,32 @@ export class VideosService {
     const m = String(now.getUTCMonth() + 1).padStart(2, '0');
     const s3Key = `videos/${y}/${m}/${id}${ALLOWED_EXT}`;
 
-    await this.s3.send(
-      new PutObjectCommand({
-        Bucket: this.config.s3Bucket,
-        Key: s3Key,
-        Body: file.buffer,
-        ContentType: file.mimetype,
-        ContentLength: file.size,
-      }),
-    );
+    try {
+      await this.s3.send(
+        new PutObjectCommand({
+          Bucket: this.config.s3Bucket,
+          Key: s3Key,
+          Body: file.buffer,
+          ContentType: file.mimetype,
+          ContentLength: file.size,
+        }),
+      );
+    } catch (err: unknown) {
+      const code = (err as { name?: string; Code?: string }).name ?? (err as { Code?: string }).Code;
+      if (code === 'AccessDenied') {
+        throw new ForbiddenException(
+          'Storage access denied. Ensure the IAM user has s3:PutObject and s3:GetObject on the configured bucket.',
+        );
+      }
+      if (code === 'NoSuchBucket') {
+        throw new BadRequestException(
+          `S3 bucket "${this.config.s3Bucket}" does not exist. Create the bucket or set S3_BUCKET correctly.`,
+        );
+      }
+      throw new ServiceUnavailableException(
+        'Video storage is temporarily unavailable. Please try again.',
+      );
+    }
 
     await this.prisma.video.create({
       data: {
