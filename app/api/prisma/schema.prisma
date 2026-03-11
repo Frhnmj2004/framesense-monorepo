@@ -1,0 +1,31 @@
+generator client {
+  provider = "prisma-client-js"
+  binaryTargets = ["native"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Video {
+  id         String   @id @db.Uuid
+  title      String?  @db.VarChar(500)
+  s3Key      String   @map("s3_key") @db.Text
+  status     String   @default("uploaded") @db.VarChar(50)
+  metadata   Json?
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  jobs       Job[]
+}
+
+model Job {
+  jobId      String   @id @map("job_id") @db.Uuid
+  videoId    String   @map("video_id") @db.Uuid
+  prompt     String   @db.Text
+  status     String   @default("queued") @db.VarChar(50)
+  resultJson Json?    @map("result_json")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  video      Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+}
