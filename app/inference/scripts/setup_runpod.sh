@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # RunPod one-shot setup: pull repo, install system deps, PyTorch, SAM 3, app deps, then start server.
 # Usage: bash scripts/setup_runpod.sh
-# Optional env: REPO_ROOT, GIT_REPO_URL (required only when repo doesn't exist)
+# Optional env: REPO_ROOT (repo URL is hard-coded)
 
 set -euo pipefail
 
 REPO_ROOT="${REPO_ROOT:-/workspace/framesense-monorepo}"
+GIT_REPO_URL="https://github.com/Frhnmj2004/framesense-monorepo"
 INFERENCE_DIR="${REPO_ROOT}/app/inference"
 SAM3_URL="${SAM3_URL:-https://github.com/facebookresearch/sam3.git}"
 PYTORCH_INDEX="https://download.pytorch.org/whl/cu126"
@@ -18,11 +19,6 @@ if [[ -d "$REPO_ROOT/.git" ]]; then
   echo "--- Pulling latest FrameSense repo ---"
   git -C "$REPO_ROOT" pull
 else
-  if [[ -z "${GIT_REPO_URL:-}" ]]; then
-    echo "ERROR: No repo at $REPO_ROOT and GIT_REPO_URL not set."
-    echo "Example: export GIT_REPO_URL=https://github.com/YOUR_USER/framesense-monorepo.git"
-    exit 1
-  fi
   echo "--- Cloning FrameSense repo ---"
   git clone "$GIT_REPO_URL" "$REPO_ROOT"
 fi
