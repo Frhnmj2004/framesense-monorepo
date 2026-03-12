@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import type { SegmentationResult } from "./VideoPlayer";
+import { createMaskImageData, decodeCocoRle } from "../lib/maskUtils";
 
 type DetectionOverlayProps = {
   detections: SegmentationResult;
@@ -19,6 +20,7 @@ export default function DetectionOverlay({
   highlightedObjectId = null,
 }: DetectionOverlayProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const maskCacheRef = useRef<Map<string, ImageData>>(new Map());
   const { video_width, video_height, detections: frames } = detections;
 
   useEffect(() => {
@@ -29,6 +31,8 @@ export default function DetectionOverlay({
 
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+
+    const maskCache = maskCacheRef.current;
 
     const updateSize = () => {
       const rect = container.getBoundingClientRect();
@@ -51,6 +55,57 @@ export default function DetectionOverlay({
       const frameData = frames.find((d) => d.frame_index === frameIndex);
       if (!frameData) return;
 
+      // First pass: masks
+      if (video_width > 0 && video_height > 0) {
+        const offscreen = document.createElement("canvas");
+        offscreen.width = video_width;
+        offscreen.height = video_height;
+        const offscreenCtx = offscreen.getContext("2d");
+
+        if (offscreenCtx) {
+          frameData.objects.forEach((obj) => {
+            const rle = obj.mask_rle;
+            if (!rle || !rle.counts || !Array.isArray(rle.size) || rle.size.length < 2) {
+              return;
+            }
+
+            const key = `${frameIndex}-${obj.object_id}`;
+            let imageData = maskCache.get(key);
+
+            if (!imageData) {
+              try {
+                const [h, w] = rle.size as [number, number];
+                const decoded = decodeCocoRle(rle.counts, [h, w]);
+                imageData = createMaskImageData(decoded, [h, w], {
+                  r: 118,
+                  g: 169,
+                  b: 57,
+                  a: 0.4,
+                });
+                maskCache.set(key, imageData);
+              } catch {
+                return;
+              }
+            }
+
+            offscreenCtx.clearRect(0, 0, offscreen.width, offscreen.height);
+            offscreenCtx.putImageData(imageData, 0, 0);
+            ctx.drawImage(
+              offscreen,
+              0,
+              0,
+              video_width,
+              video_height,
+              0,
+              0,
+              canvas.width,
+              canvas.height
+            );
+          });
+        }
+      }
+
+      // Second pass: boxes and labels
       frameData.objects.forEach((obj) => {
         const [x1, y1, x2, y2] = obj.box;
         const isHighlighted = highlightedObjectId === obj.object_id;
@@ -71,7 +126,16 @@ export default function DetectionOverlay({
     };
 
     draw();
-  }, [detections, currentTime, video_width, video_height, frames, highlightedObjectId, containerRef, videoRef]);
+  }, [
+    detections,
+    currentTime,
+    video_width,
+    video_height,
+    frames,
+    highlightedObjectId,
+    containerRef,
+    videoRef,
+  ]);
 
   return (
     <canvas
