@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>FrameSense | AI Video Segmentation</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@100;300;400;500;600;700;800;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#76a838",
+                        "background-light": "#f7f8f6",
+                        "background-dark": "#0f1510",
+                    },
+                    fontFamily: {
+                        "display": ["Be Vietnam Pro", "sans-serif"]
+                    },
+                    borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "2xl": "1rem", "full": "9999px"},
+                },
+            },
+        }
+    </script>
+<style>
+        .liquid-glass {
+            background: rgba(118, 168, 56, 0.03);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(118, 168, 56, 0.1);
+        }
+        .glass-card {
+            background: rgba(255, 255, 255, 0.02);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+    </style>
+</head>
+<body class="bg-background-dark font-display text-slate-100 min-h-screen selection:bg-primary/30">
+<!-- Floating Top Nav Bar -->
+<nav class="fixed top-6 left-1/2 -translate-x-1/2 z-50 w-[90%] max-w-6xl">
+<div class="liquid-glass rounded-full px-6 py-3 flex items-center justify-between shadow-2xl">
+<div class="flex items-center gap-3">
+<div class="bg-primary p-1.5 rounded-lg flex items-center justify-center">
+<span class="material-symbols-outlined text-background-dark text-xl font-bold">polyline</span>
+</div>
+<h1 class="text-xl font-bold tracking-tight">FrameSense</h1>
+</div>
+<div class="hidden md:flex items-center gap-8">
+<a class="text-sm font-medium text-primary border-b-2 border-primary pb-0.5" href="#">Dashboard</a>
+<a class="text-sm font-medium text-slate-400 hover:text-slate-100 transition-colors" href="#">Projects</a>
+<a class="text-sm font-medium text-slate-400 hover:text-slate-100 transition-colors" href="#">Documentation</a>
+<a class="text-sm font-medium text-slate-400 hover:text-slate-100 transition-colors" href="#">API</a>
+</div>
+<div class="flex items-center gap-4">
+<button class="p-2 text-slate-400 hover:text-slate-100 transition-colors">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<div class="h-8 w-8 rounded-full bg-primary/20 border border-primary/30 overflow-hidden">
+<img alt="User Profile" class="w-full h-full object-cover" data-alt="Portrait of a smiling professional man" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAt8q0m6V7dBJ3n0TQvERNS18EBwhulvoZxj1SHsfJQwsSum4tndubmMuGOcvCIVEcYXQ0gZ2ZS50fbjcNw0SYAInVt2ENQShv2qtAUcSvuqo3ewQDjt7QzZmYvcxgvXpSggd9wxB7q7HzVr8wjXhC-lEIZviawKvorVz4J_z90ROdRxp6-_h-nI9WFlJjdJQQYbw2nz8KALSc-AiPQO56uqJmLPIbRIOy3OCrcAM-VsYe3AW7NAh8cMa_LB4e2dbRLNYo8tjMXmg"/>
+</div>
+</div>
+</div>
+</nav>
+<!-- Main Content Grid -->
+<main class="pt-32 pb-12 px-6 max-w-7xl mx-auto">
+<div class="grid grid-cols-12 gap-6">
+<!-- Module 4: Video Player (Main Bento Piece) -->
+<div class="col-span-12 lg:col-span-8 glass-card rounded-2xl overflow-hidden shadow-xl p-4 flex flex-col gap-4">
+<div class="relative group aspect-video bg-black rounded-xl overflow-hidden border border-white/5">
+<img alt="Video frame" class="w-full h-full object-cover opacity-60" data-alt="Cinematic shot of a modern office interior with technology" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCS5-dJKAEp_p9hukdDo91sS2Da0vRwM_Z6y9krwAoCnbippLWCmKa2e1CZv67maSkJx09nXxbokJYGf5fr5dmgg-hh-izIvny9aC4I0hNysx3571ZUCux2rSD8ELSTXx0tUagx9QWvXELyjjnCkm1dMZxhEG2XQRoQ2xKlXbexNDaOBEuKVvb_4kXBZxmoOKWJvUivzO5vJzcUnqwLleYDnzot4GizGmhAVSjWAtlZx97_qC2cZSOm17NCsmfrgLWgLpOHVSNSVA"/>
+<!-- Segmentation Overlay -->
+<div class="absolute top-[30%] left-[40%] w-32 h-40 border-2 border-primary rounded shadow-[0_0_15px_rgba(118,168,56,0.5)]">
+<div class="absolute -top-6 left-0 bg-primary text-background-dark text-[10px] font-bold px-2 py-0.5 rounded-sm uppercase tracking-wider">
+                            MacBook Pro [0.98]
+                        </div>
+</div>
+<!-- Player Controls -->
+<div class="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-black/80 to-transparent">
+<div class="flex flex-col gap-3">
+<div class="w-full h-1.5 bg-white/20 rounded-full overflow-hidden relative">
+<div class="absolute left-0 top-0 bottom-0 bg-primary w-2/3"></div>
+<div class="absolute left-[66%] top-1/2 -translate-y-1/2 w-4 h-4 bg-white rounded-full shadow-lg"></div>
+</div>
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-4">
+<span class="material-symbols-outlined cursor-pointer hover:text-primary transition-colors">fast_rewind</span>
+<span class="material-symbols-outlined cursor-pointer text-4xl hover:text-primary transition-colors">play_circle</span>
+<span class="material-symbols-outlined cursor-pointer hover:text-primary transition-colors">fast_forward</span>
+<span class="text-xs font-mono text-slate-400">00:42 / 01:15</span>
+</div>
+<div class="flex items-center gap-4">
+<span class="material-symbols-outlined cursor-pointer hover:text-primary transition-colors">closed_caption</span>
+<span class="material-symbols-outlined cursor-pointer hover:text-primary transition-colors">settings</span>
+<span class="material-symbols-outlined cursor-pointer hover:text-primary transition-colors">fullscreen</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Module 5: Detection Results -->
+<div class="col-span-12 lg:col-span-4 glass-card rounded-2xl p-6 flex flex-col gap-6">
+<div class="flex items-center justify-between">
+<h3 class="text-lg font-semibold">Detected Objects</h3>
+<span class="text-xs bg-primary/10 text-primary px-2 py-1 rounded-full border border-primary/20">Live Stream</span>
+</div>
+<div class="space-y-3 overflow-y-auto max-h-[400px] pr-2">
+<!-- Item -->
+<div class="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/5 hover:border-primary/30 transition-all cursor-pointer">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
+<span class="material-symbols-outlined">laptop_mac</span>
+</div>
+<div>
+<p class="text-sm font-medium">MacBook Pro</p>
+<p class="text-[10px] text-slate-500 uppercase tracking-tighter">Frames 120-450</p>
+</div>
+</div>
+<div class="text-right">
+<p class="text-sm font-bold text-primary">98.2%</p>
+<p class="text-[10px] text-slate-500">Confidence</p>
+</div>
+</div>
+<!-- Item -->
+<div class="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/5 hover:border-primary/30 transition-all cursor-pointer">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
+<span class="material-symbols-outlined">coffee</span>
+</div>
+<div>
+<p class="text-sm font-medium">Ceramic Mug</p>
+<p class="text-[10px] text-slate-500 uppercase tracking-tighter">Frames 001-890</p>
+</div>
+</div>
+<div class="text-right">
+<p class="text-sm font-bold text-primary">94.5%</p>
+<p class="text-[10px] text-slate-500">Confidence</p>
+</div>
+</div>
+<!-- Item -->
+<div class="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/5 hover:border-primary/30 transition-all cursor-pointer">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
+<span class="material-symbols-outlined">person</span>
+</div>
+<div>
+<p class="text-sm font-medium">Person</p>
+<p class="text-[10px] text-slate-500 uppercase tracking-tighter">Frames 302-350</p>
+</div>
+</div>
+<div class="text-right">
+<p class="text-sm font-bold text-primary">87.1%</p>
+<p class="text-[10px] text-slate-500">Confidence</p>
+</div>
+</div>
+</div>
+</div>
+<!-- Module 1: Upload (Small Bento) -->
+<div class="col-span-12 md:col-span-6 lg:col-span-3 glass-card rounded-2xl p-6 flex flex-col justify-between group cursor-pointer hover:bg-white/[0.04] transition-all">
+<div class="flex flex-col gap-4">
+<div class="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center text-primary border border-primary/20">
+<span class="material-symbols-outlined text-2xl">movie_edit</span>
+</div>
+<div>
+<h3 class="font-semibold text-lg">Upload Video</h3>
+<p class="text-slate-400 text-sm">MP4, MOV up to 2GB</p>
+</div>
+</div>
+<div class="mt-8 flex flex-col gap-2">
+<div class="flex justify-between text-xs mb-1">
+<span class="text-slate-500 italic">production_shot_final.mp4</span>
+<span class="text-primary font-bold">45%</span>
+</div>
+<div class="h-1.5 bg-white/5 rounded-full overflow-hidden">
+<div class="h-full bg-primary w-[45%] rounded-full"></div>
+</div>
+</div>
+</div>
+<!-- Module 2: Prompt Input -->
+<div class="col-span-12 md:col-span-6 lg:col-span-6 glass-card rounded-2xl p-6 flex flex-col gap-6">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary">search_spark</span>
+<h3 class="font-semibold">Detection Prompt</h3>
+</div>
+<div class="relative flex-1">
+<input class="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-4 focus:ring-1 focus:ring-primary focus:border-primary outline-none text-slate-200 placeholder:text-slate-600" placeholder="Describe the object you want to detect (e.g. 'Silver laptop on desk')" type="text"/>
+</div>
+<div class="flex justify-end">
+<button class="bg-primary hover:bg-primary/90 text-background-dark font-bold py-2.5 px-8 rounded-full flex items-center gap-2 transition-all active:scale-95 shadow-[0_0_20px_rgba(118,168,56,0.2)]">
+<span class="material-symbols-outlined text-sm">play_arrow</span>
+                        Run Analysis
+                    </button>
+</div>
+</div>
+<!-- Module 3: Status (Progress) -->
+<div class="col-span-12 lg:col-span-3 glass-card rounded-2xl p-6 flex flex-col justify-between">
+<div>
+<h3 class="font-semibold mb-1">Status</h3>
+<div class="flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-primary animate-pulse"></div>
+<span class="text-sm text-slate-300">Processing...</span>
+</div>
+</div>
+<div class="flex flex-col gap-3">
+<div class="flex items-end justify-between">
+<span class="text-[40px] font-black text-primary leading-none">82%</span>
+<span class="text-[10px] text-slate-500 font-mono mb-1">STEP 4/5</span>
+</div>
+<!-- Liquid progress bar -->
+<div class="h-4 liquid-glass rounded-full overflow-hidden relative border border-white/5 p-1">
+<div class="h-full bg-primary/40 rounded-full w-[82%] relative">
+<div class="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-shimmer"></div>
+</div>
+</div>
+</div>
+</div>
+<!-- Module 6: Metrics Grid -->
+<div class="col-span-12 grid grid-cols-1 md:grid-cols-3 gap-6">
+<div class="glass-card rounded-2xl p-6 flex items-center gap-6 group hover:border-primary/20 transition-all">
+<div class="p-3 bg-white/5 rounded-xl group-hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-3xl">image_search</span>
+</div>
+<div>
+<p class="text-xs text-slate-500 uppercase font-bold tracking-widest">Frames Processed</p>
+<p class="text-2xl font-black">12,840</p>
+</div>
+</div>
+<div class="glass-card rounded-2xl p-6 flex items-center gap-6 group hover:border-primary/20 transition-all">
+<div class="p-3 bg-white/5 rounded-xl group-hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-3xl">4k</span>
+</div>
+<div>
+<p class="text-xs text-slate-500 uppercase font-bold tracking-widest">Resolution</p>
+<p class="text-2xl font-black">3840 x 2160</p>
+</div>
+</div>
+<div class="glass-card rounded-2xl p-6 flex items-center gap-6 group hover:border-primary/20 transition-all">
+<div class="p-3 bg-white/5 rounded-xl group-hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-3xl">data_object</span>
+</div>
+<div>
+<p class="text-xs text-slate-500 uppercase font-bold tracking-widest">Objects Detected</p>
+<p class="text-2xl font-black">42</p>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- Background Elements -->
+<div class="fixed top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/10 blur-[120px] rounded-full -z-10"></div>
+<div class="fixed bottom-[-5%] right-[-5%] w-[30%] h-[30%] bg-primary/5 blur-[100px] rounded-full -z-10"></div>
+</body></html>
