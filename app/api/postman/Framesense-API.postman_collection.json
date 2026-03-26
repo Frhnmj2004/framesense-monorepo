@@ -1,0 +1,215 @@
+{
+  "info": {
+    "name": "Framesense API",
+    "description": "Backend API for video upload, S3 storage, and SAM 3 inference segmentation",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000"
+    },
+    {
+      "key": "videoId",
+      "value": ""
+    },
+    {
+      "key": "jobId",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Root",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/",
+            "description": "Root endpoint"
+          }
+        },
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/health",
+            "description": "Health check endpoint"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Videos",
+      "item": [
+        {
+          "name": "Upload Video",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const json = pm.response.json();",
+                  "    if (json.data && json.data.id) {",
+                  "        pm.collectionVariables.set('videoId', json.data.id);",
+                  "        console.log('Saved videoId:', json.data.id);",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": [],
+                  "description": "MP4 video file"
+                },
+                {
+                  "key": "title",
+                  "value": "My video",
+                  "type": "text",
+                  "description": "Optional title"
+                }
+              ]
+            },
+            "url": "{{baseUrl}}/videos",
+            "description": "Upload video (multipart). Returns id, s3_key, presigned_url. videoId is auto-saved for /segment."
+          }
+        },
+        {
+          "name": "Get Video by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/videos/{{videoId}}",
+            "description": "Get video metadata and latest segmentation result. Replace videoId with UUID from upload."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Segment",
+      "item": [
+        {
+          "name": "Segment (Sync)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const json = pm.response.json();",
+                  "    if (json.data && json.data.job_id) {",
+                  "        pm.collectionVariables.set('jobId', json.data.job_id);",
+                  "        console.log('Saved jobId:', json.data.job_id);",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"videoId\": \"{{videoId}}\",\n  \"prompt\": \"cars\",\n  \"mode\": \"sync\",\n  \"config\": {\n    \"max_frame_count\": 50\n  }\n}"
+            },
+            "url": "{{baseUrl}}/segment",
+            "description": "Request segmentation (sync mode). Waits for inference to complete. Requires videoId from upload."
+          }
+        },
+        {
+          "name": "Segment (Async)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const json = pm.response.json();",
+                  "    if (json.data && json.data.job_id) {",
+                  "        pm.collectionVariables.set('jobId', json.data.job_id);",
+                  "        console.log('Saved jobId:', json.data.job_id);",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"videoId\": \"{{videoId}}\",\n  \"prompt\": \"cars\",\n  \"mode\": \"async\",\n  \"config\": {\n    \"max_frame_count\": 250\n  }\n}"
+            },
+            "url": "{{baseUrl}}/segment",
+            "description": "Request segmentation (async mode). Returns job_id immediately. Poll GET /jobs/:id for result."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Jobs",
+      "item": [
+        {
+          "name": "Get Job by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/jobs/{{jobId}}",
+            "description": "Get job status and result. Replace jobId with UUID from POST /segment."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Inference Callback",
+      "item": [
+        {
+          "name": "Callback (Webhook)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"job_id\": \"{{jobId}}\",\n  \"session_id\": \"45881e5d-827b-4f78-8cfe-b846ed62697d\",\n  \"frames_processed\": 5,\n  \"video_width\": 640,\n  \"video_height\": 360,\n  \"detections\": []\n}"
+            },
+            "url": "{{baseUrl}}/inference/callback?job_id={{jobId}}",
+            "description": "Webhook for async inference from Python. job_id in query or body."
+          }
+        }
+      ]
+    }
+  ]
+}

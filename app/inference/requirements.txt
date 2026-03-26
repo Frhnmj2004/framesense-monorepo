@@ -22,3 +22,9 @@ opencv-python-headless>=4.8.0
 # Note: SAM 3 is installed from source in Dockerfile:
 # git clone https://github.com/facebookresearch/sam3.git
 # pip install .
+
+# 3D pipeline and storage helpers
+boto3>=1.34.0
+trimesh>=4.0.0
+pygltflib>=1.16.0
+huggingface_hub>=0.26.0

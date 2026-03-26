@@ -1,5 +1,7 @@
 """Configuration settings for the SAM 3 inference service."""
 
+from pathlib import Path
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -64,6 +66,55 @@ class Settings(BaseSettings):
     port: int = Field(
         default=8000,
         description="Port to bind the server to",
+    )
+
+    # --- SAM-3D and 3D inference configuration ---
+
+    enable_sam3d: bool = Field(
+        default=True,
+        description="Enable SAM-3D 3D reconstruction endpoints",
+    )
+
+    sam3d_checkpoint_path: str | None = Field(
+        default=None,
+        description="Path to SAM-3D checkpoints directory (contains pipeline.yaml)",
+    )
+
+    sam3d_repo_path: str | None = Field(
+        default=None,
+        description="Path to local sam-3d-objects repository (for importing inference code)",
+    )
+
+    inference_workdir: str = Field(
+        default="workdir",
+        description="Base directory for temporary 3D jobs (frames, meshes, previews)",
+    )
+
+    default_sync_timeout_ms: int = Field(
+        default=120_000,
+        description="Default timeout in milliseconds for synchronous 3D jobs",
+    )
+
+    model_max_idle_seconds: int = Field(
+        default=300,
+        description="Maximum idle time before eligible models may be unloaded (for future use)",
+    )
+
+    # S3 configuration for 3D artifacts
+    s3_bucket: str | None = Field(
+        default=None,
+        description="S3 bucket name for uploading 3D artifacts (preview, meshes)",
+    )
+
+    aws_region: str = Field(
+        default="us-east-1",
+        description="AWS region for S3 operations",
+    )
+
+    # Optional admin token for protected model/status endpoints
+    inference_admin_token: str | None = Field(
+        default=None,
+        description="Optional admin token required for sensitive admin endpoints",
     )
 
 
