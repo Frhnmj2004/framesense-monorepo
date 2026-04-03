@@ -58,6 +58,7 @@ export class VideosService {
     const now = new Date();
     const y = now.getUTCFullYear();
     const m = String(now.getUTCMonth() + 1).padStart(2, '0');
+    // Keep uploaded videos grouped by year/month so S3 object keys stay organized.
     const s3Key = `videos/${y}/${m}/${id}${ALLOWED_EXT}`;
 
     try {

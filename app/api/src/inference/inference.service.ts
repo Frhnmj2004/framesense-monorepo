@@ -47,6 +47,7 @@ export class InferenceService {
       return { job_id: jobId, result: validated };
     }
 
+    // Async mode returns immediately; the inference work continues in the background.
     this.runPythonAsync(jobId, presignedUrl, prompt, config?.max_frame_count);
     return { job_id: jobId, status: 'queued' };
   }
