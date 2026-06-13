@@ -309,6 +309,89 @@ Process a video with SAM 3 text prompt. Returns **pixel-level segmentation masks
 - `500`: Model inference error
 - `503`: Service not initialized
 
+### `POST /3d`
+
+Single-image 3D reconstruction using **SAM-3D Objects**.
+
+**Request:**
+
+```json
+{
+  "image_url": "https://example.com/frame_00042.png",
+  "mask_rle": {
+    "counts": "0 370 350 370 350 ...",
+    "size": [720, 1280]
+  },
+  "preset": "fast",
+  "seed": 42
+}
+```
+
+**Synchronous Response (current behavior):**
+
+```json
+{
+  "job_id": "c5a9e33b-5b9c-4ac8-9e9d-9ef2f0df9c3b",
+  "status": "completed",
+  "preview_url": "https://s3.example.com/bucket/job-id/preview.png",
+  "preview_base64": null,
+  "mesh_files": [
+    { "type": "ply", "url": "https://s3.example.com/bucket/job-id/splat.ply" },
+    { "type": "glb", "url": "https://s3.example.com/bucket/job-id/model.glb" }
+  ],
+  "runtime_seconds": 123.4
+}
+```
+
+If SAM-3D is not configured or disabled, the endpoint returns `503` with a clear error message.
+
+### `GET /3d/{job_id}`
+
+Retrieve the status or result of a 3D reconstruction job.
+
+**Response examples:**
+
+- **Queued / running:**
+
+```json
+{ "job_id": "c5a9e33b-5b9c-4ac8-9e9d-9ef2f0df9c3b", "status": "queued" }
+```
+
+- **Completed:** same shape as `POST /3d` completed response.
+
+- **Failed:**
+
+```json
+{
+  "job_id": "c5a9e33b-5b9c-4ac8-9e9d-9ef2f0df9c3b",
+  "status": "failed",
+  "error": "3D inference failed: <details>"
+}
+```
+
+### `GET /models/status`
+
+Operator-facing endpoint reporting model and GPU status.
+
+**Response:**
+
+```json
+{
+  "sam3_loaded": true,
+  "sam3d_available": false,
+  "gpu_memory_info": {
+    "device_count": 1,
+    "current_device": 0,
+    "name": "NVIDIA A40",
+    "memory_allocated": 123456789,
+    "memory_reserved": 234567890
+  },
+  "messages": [
+    "SAM-3D not configured: set SAM3D_REPO_PATH and SAM3D_CHECKPOINT_PATH."
+  ]
+}
+```
+
 ## RunPod Pod Deployment (Step-by-Step)
 
 Use this when your **backend and frontend are on Railway** and only the **GPU inference** runs on RunPod. The Railway backend will call the RunPod inference URL.
@@ -452,6 +535,13 @@ All configuration is done via environment variables. You can set them in two way
 | `INFERENCE_TIMEOUT` | `300` | Maximum inference time per request |
 | `HOST` | `0.0.0.0` | Server host |
 | `PORT` | `8000` | Server port |
+| `ENABLE_SAM3D` / `enable_sam3d` | `true` | Enable or disable SAM-3D endpoints |
+| `SAM3D_CHECKPOINT_PATH` / `sam3d_checkpoint_path` | `None` | Path to SAM-3D checkpoints (contains `pipeline.yaml`) |
+| `SAM3D_REPO_PATH` / `sam3d_repo_path` | `None` | Path to local `sam-3d-objects` repo |
+| `INFERENCE_WORKDIR` / `inference_workdir` | `workdir` | Base directory for temporary 3D jobs and artifacts |
+| `S3_BUCKET` / `s3_bucket` | `None` | S3 bucket for uploaded 3D artifacts |
+| `AWS_REGION` / `aws_region` | `us-east-1` | AWS region for S3 operations |
+| `INFERENCE_ADMIN_TOKEN` / `inference_admin_token` | `None` | Optional token required for `/models/status` when set |
 
 ## Performance Considerations
 
